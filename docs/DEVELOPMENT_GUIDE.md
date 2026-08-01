@@ -220,4 +220,10 @@ Every Pull Request must:
 
 ---
 
+# Never guess missing requirements.
+
+If specification is missing,
+stop implementation and report it.
+
+---
 END
