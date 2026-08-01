@@ -77,31 +77,7 @@
 
 ---
 
-## 6. Technology Stack
-
-ليس تفاصيل.
-
-فقط الحقيقة.
-
-مثلاً:
-
-Frontend
-
-Backend
-
-Database
-
-PWA
-
-Desktop
-
-AI
-
-Storage
-
----
-
-## 7. Documentation Index
+## 6. Documentation Index
 
 ويقول للـ AI:
 
@@ -123,7 +99,7 @@ IMPLEMENTATION_PLAN.md
 
 ---
 
-## 8. AI Instructions
+## 7. AI Instructions
 
 وهذا أهم قسم.
 
@@ -139,7 +115,7 @@ Before writing any code:
 
 ---
 
-## 9. Current Project Status
+## 8. Current Project Status
 
 Planning
 
@@ -155,7 +131,7 @@ Released
 
 ---
 
-## 10. Version
+## 9. Version
 
 Version
 
