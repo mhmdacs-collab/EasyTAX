@@ -154,17 +154,6 @@ These capabilities may be implemented as Plugins.
 
 ---
 
-# Future Expansion
-
-- AI Assistant
-- OCR
-- Cloud Document Storage
-- Saudi Government APIs
-- Plugin Marketplace
-- Third-party Integrations
-
----
-
 # Acceptance Criteria
 
 - Business documents can be issued in less than one minute.
