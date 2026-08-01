@@ -39,6 +39,28 @@ Required
 
 ---
 
+# Phase 0.5
+
+Project Bootstrap
+
+Deliverables
+
+Package Manager
+
+Monorepo
+
+Lint
+
+Formatter
+
+Git Hooks
+
+Testing Framework
+
+Build System
+
+---
+
 # Phase 1
 
 Core Foundation
