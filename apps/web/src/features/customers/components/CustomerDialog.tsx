@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { db, type Customer } from "@/lib/db"
 import { generateId } from "@/shared/utils"
+import { toast } from "@/shared/hooks/useToast"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
 } from "@/shared/components/ui/dialog"
@@ -147,3 +148,4 @@ export function CustomerDialog({ open, onClose, organizationId, customer }: Prop
     </Dialog>
   )
 }
+

@@ -19,6 +19,7 @@ import { TotalsSection } from "./TotalsSection"
 import { calcItemSubtotal, calcDocumentTotals, DOCUMENT_TYPE_LABELS } from "../lib/calculations"
 import { nextDocumentNumber } from "../lib/numbering"
 import { generateId } from "@/shared/utils"
+import { toast } from "@/shared/hooks/useToast"
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -176,6 +177,7 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
       if (draft) await db.documents.put(doc)
       else await db.documents.add(doc)
       await navigate({ to: "/documents" })
+      toast({ title: "تم الحفظ", description: "تم حفظ المسودة بنجاح", variant: "success" })
     } finally {
       setIsSaving(false)
     }
@@ -314,3 +316,4 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
     </div>
   )
 }
+

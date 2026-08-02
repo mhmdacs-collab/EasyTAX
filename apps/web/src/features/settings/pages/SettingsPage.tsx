@@ -9,6 +9,7 @@ import { Button } from "@/shared/components/ui/button"
 import { Input } from "@/shared/components/ui/input"
 import { Label } from "@/shared/components/ui/label"
 import { Separator } from "@/shared/components/ui/separator"
+import { toast } from "@/shared/hooks/useToast"
 
 const schema = z.object({
   business_name: z.string().min(2, "اسم المنشأة مطلوب"),
@@ -67,7 +68,8 @@ export default function SettingsPage() {
       sync_status: "pending",
       version: org.version + 1,
     })
-    form.reset(data) // clear dirty state
+    form.reset(data)
+    toast({ title: "تم الحفظ", description: "تم تحديث بيانات المنشأة", variant: "success" }) // clear dirty state
   })
 
   if (!org) return (
@@ -164,3 +166,4 @@ export default function SettingsPage() {
     </div>
   )
 }
+

@@ -63,3 +63,52 @@
 [dir="rtl"] {
   font-family: "Noto Sans Arabic", "Inter", system-ui, sans-serif;
 }
+
+/* ─── Print styles ─────────────────────────────────────────────────────────── */
+@media print {
+  /* Hide everything except the document card */
+  body > * { display: none !important; }
+  #root > * { display: none !important; }
+
+  /* Show only the invoice print area */
+  .print\:block, [data-print-area] { display: block !important; }
+
+  /* The document card itself */
+  .print\:max-w-none { max-width: none !important; }
+  .print\:shadow-none { box-shadow: none !important; }
+  .print\:border-0 { border: none !important; }
+
+  /* Action bar hidden on print */
+  .print\:hidden { display: none !important; }
+
+  /* Page setup */
+  @page {
+    size: A4;
+    margin: 15mm 20mm;
+  }
+
+  /* Prevent page breaks inside rows */
+  tr, td, th { page-break-inside: avoid; }
+
+  /* Force white background */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    background-color: white !important;
+    color: black !important;
+  }
+
+  /* Show the full document container */
+  .min-h-screen {
+    min-height: auto !important;
+    background: white !important;
+    padding: 0 !important;
+  }
+
+  .mx-auto.max-w-3xl {
+    max-width: 100% !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+}

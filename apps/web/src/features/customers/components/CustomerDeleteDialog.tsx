@@ -1,4 +1,5 @@
 ﻿import { useState } from "react"
+import { toast } from "@/shared/hooks/useToast"
 import { db, type Customer } from "@/lib/db"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/shared/components/ui/dialog"
 import { Button } from "@/shared/components/ui/button"
@@ -19,6 +20,7 @@ export function CustomerDeleteDialog({ customer, onClose }: Props) {
       sync_status: "pending",
     })
     setLoading(false)
+    toast({ title: "تم الحذف", variant: "default" })
     onClose()
   }
 
@@ -40,3 +42,4 @@ export function CustomerDeleteDialog({ customer, onClose }: Props) {
     </Dialog>
   )
 }
+
