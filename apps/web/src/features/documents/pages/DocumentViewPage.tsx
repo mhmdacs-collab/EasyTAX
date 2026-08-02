@@ -7,6 +7,7 @@ import { Separator } from "@/shared/components/ui/separator"
 import { DocumentTypeBadge } from "../components/DocumentTypeBadge"
 import { DocumentStatusBadge } from "../components/DocumentStatusBadge"
 import { DOCUMENT_TYPE_LABELS } from "../lib/calculations"
+import { ZatcaQrCode } from "@/lib/zatca/ZatcaQrCode"
 import { formatCurrency, formatDate } from "@/shared/utils"
 
 export function DocumentViewPage() {
@@ -154,6 +155,20 @@ export function DocumentViewPage() {
               <p className="text-muted-foreground whitespace-pre-wrap">{doc.notes}</p>
             </div>
           </>
+        )}
+
+        {/* ZATCA QR — only for issued tax invoices */}
+        {doc.status === "issued" && (doc.type === "tax_invoice" || doc.type === "simplified_invoice") && org && (
+          <div className="mt-6 flex justify-end border-t pt-4">
+            <ZatcaQrCode
+              sellerName={org.business_name}
+              vatNumber={org.vat_number}
+              invoiceDateTime={doc.issued_at ?? doc.updated_at}
+              totalWithVat={doc.total}
+              vatAmount={doc.vat_amount}
+              size={110}
+            />
+          </div>
         )}
       </div>
     </div>
