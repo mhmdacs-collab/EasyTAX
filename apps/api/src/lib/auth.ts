@@ -1,21 +1,23 @@
-import { betterAuth } from "better-auth";
-import { neon } from "@neondatabase/serverless";
+﻿import { betterAuth } from "better-auth"
+import { Pool } from "pg"
 
 if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL environment variable is required");
+  throw new Error("DATABASE_URL environment variable is required")
 }
 
-const sql = neon(process.env.DATABASE_URL);
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 10,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 5_000,
+})
 
 export const auth = betterAuth({
-  database: {
-    // Better Auth will use this to run SQL directly
-    provider: "pg",
-    url: process.env.DATABASE_URL,
-  },
+  database: pool,
   emailAndPassword: {
     enabled: true,
-    requireEmailVerification: false, // Enable in production
+    requireEmailVerification: false,
+    minPasswordLength: 8,
   },
   trustedOrigins: [
     process.env.FRONTEND_URL ?? "http://localhost:5173",
@@ -23,4 +25,8 @@ export const auth = betterAuth({
   ],
   secret: process.env.BETTER_AUTH_SECRET,
   baseURL: process.env.API_URL ?? "http://localhost:3000",
-});
+  session: {
+    expiresIn: 60 * 60 * 24 * 30,   // 30 days
+    updateAge: 60 * 60 * 24,         // refresh every 24 h
+  },
+})

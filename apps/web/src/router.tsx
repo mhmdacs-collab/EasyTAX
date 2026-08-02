@@ -1,71 +1,83 @@
-import { createRouter, createRoute, createRootRoute } from "@tanstack/react-router";
-import { Outlet } from "@tanstack/react-router";
-import { lazy, Suspense } from "react";
+﻿import { createRouter, createRoute, createRootRoute, redirect } from "@tanstack/react-router"
+import { Outlet } from "@tanstack/react-router"
+import { lazy, Suspense } from "react"
+import { authClient } from "@/lib/auth/client"
+import { AppLayout } from "@/layouts/AppLayout"
+import { Spinner } from "@/shared/components/ui/spinner"
 
-// ─── Root Route ───────────────────────────────────────────────────────────────
-
+// ─── Root ─────────────────────────────────────────────────────────────────────
 const rootRoute = createRootRoute({
   component: () => (
-    <Suspense fallback={<div className="flex h-screen items-center justify-center">جاري التحميل...</div>}>
+    <Suspense fallback={<div className="flex h-screen items-center justify-center"><Spinner size="lg" /></div>}>
       <Outlet />
     </Suspense>
   ),
-});
+})
 
-// ─── Lazy-loaded Pages ────────────────────────────────────────────────────────
-
-const LoginPage = lazy(() => import("@/features/auth/pages/LoginPage"));
-const DashboardPage = lazy(() => import("@/features/dashboard/pages/DashboardPage"));
-const CustomersPage = lazy(() => import("@/features/customers/pages/CustomersPage"));
-const DocumentsPage = lazy(() => import("@/features/documents/pages/DocumentsPage"));
-const SettingsPage = lazy(() => import("@/features/settings/pages/SettingsPage"));
-
-// ─── Route Definitions ────────────────────────────────────────────────────────
+// ─── Public pages ─────────────────────────────────────────────────────────────
+const LoginPage = lazy(() => import("@/features/auth/pages/LoginPage"))
+const RegisterPage = lazy(() => import("@/features/auth/pages/RegisterPage"))
 
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
   component: LoginPage,
-});
+})
 
-const dashboardRoute = createRoute({
+const registerRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/",
-  component: DashboardPage,
-});
+  path: "/register",
+  component: RegisterPage,
+})
 
-const customersRoute = createRoute({
+// ─── Onboarding (requires auth, no org yet) ───────────────────────────────────
+const OnboardingPage = lazy(() => import("@/features/onboarding/pages/OnboardingPage"))
+
+const onboardingRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/customers",
-  component: CustomersPage,
-});
+  path: "/onboarding",
+  beforeLoad: async () => {
+    const session = await authClient.getSession()
+    if (!session?.data?.user) throw redirect({ to: "/login" })
+  },
+  component: OnboardingPage,
+})
 
-const documentsRoute = createRoute({
+// ─── Protected app shell ──────────────────────────────────────────────────────
+const appRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/documents",
-  component: DocumentsPage,
-});
+  id: "app",
+  beforeLoad: async ({ location }) => {
+    const session = await authClient.getSession()
+    if (!session?.data?.user) {
+      throw redirect({ to: "/login", search: { redirect: location.href } })
+    }
+  },
+  component: AppLayout,
+})
 
-const settingsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/settings",
-  component: SettingsPage,
-});
+const DashboardPage = lazy(() => import("@/features/dashboard/pages/DashboardPage"))
+const CustomersPage = lazy(() => import("@/features/customers/pages/CustomersPage"))
+const DocumentsPage = lazy(() => import("@/features/documents/pages/DocumentsPage"))
+const SettingsPage = lazy(() => import("@/features/settings/pages/SettingsPage"))
 
-// ─── Router ───────────────────────────────────────────────────────────────────
+const dashboardRoute = createRoute({ getParentRoute: () => appRoute, path: "/", component: DashboardPage })
+const customersRoute = createRoute({ getParentRoute: () => appRoute, path: "/customers", component: CustomersPage })
+const documentsRoute = createRoute({ getParentRoute: () => appRoute, path: "/documents", component: DocumentsPage })
+const settingsRoute = createRoute({ getParentRoute: () => appRoute, path: "/settings", component: SettingsPage })
 
+// ─── Tree ─────────────────────────────────────────────────────────────────────
 const routeTree = rootRoute.addChildren([
   loginRoute,
-  dashboardRoute,
-  customersRoute,
-  documentsRoute,
-  settingsRoute,
-]);
+  registerRoute,
+  onboardingRoute,
+  appRoute.addChildren([dashboardRoute, customersRoute, documentsRoute, settingsRoute]),
+])
 
-export const router = createRouter({ routeTree });
+export const router = createRouter({ routeTree })
 
 declare module "@tanstack/react-router" {
   interface Register {
-    router: typeof router;
+    router: typeof router
   }
 }

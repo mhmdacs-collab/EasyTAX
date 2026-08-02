@@ -1,6 +1,6 @@
-﻿import { LoginForm } from "../components/LoginForm"
+﻿import { RegisterForm } from "../components/RegisterForm"
 
-export default function LoginPage() {
+export default function RegisterPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
       <div className="w-full max-w-md space-y-8">
@@ -9,10 +9,10 @@ export default function LoginPage() {
             ET
           </div>
           <h1 className="text-2xl font-bold">EasyTAX</h1>
-          <p className="mt-1 text-sm text-muted-foreground">تسجيل الدخول إلى حسابك</p>
+          <p className="mt-1 text-sm text-muted-foreground">إنشاء حساب جديد</p>
         </div>
         <div className="rounded-xl border bg-card p-8 shadow-sm">
-          <LoginForm />
+          <RegisterForm />
         </div>
       </div>
     </div>
