@@ -58,12 +58,23 @@ const appRoute = createRoute({
 
 const DashboardPage = lazy(() => import("@/features/dashboard/pages/DashboardPage"))
 const CustomersPage = lazy(() => import("@/features/customers/pages/CustomersPage"))
-const DocumentsPage = lazy(() => import("@/features/documents/pages/DocumentsPage"))
+const DocumentsPage = lazy(() => import("@/features/documents/pages/DocumentsPage").then((m) => ({ default: m.DocumentsPage })))
+const NewDocumentPage = lazy(() => import("@/features/documents/pages/NewDocumentPage").then((m) => ({ default: m.NewDocumentPage })))
+const DocumentViewPage = lazy(() => import("@/features/documents/pages/DocumentViewPage").then((m) => ({ default: m.DocumentViewPage })))
 const SettingsPage = lazy(() => import("@/features/settings/pages/SettingsPage"))
 
 const dashboardRoute = createRoute({ getParentRoute: () => appRoute, path: "/", component: DashboardPage })
 const customersRoute = createRoute({ getParentRoute: () => appRoute, path: "/customers", component: CustomersPage })
 const documentsRoute = createRoute({ getParentRoute: () => appRoute, path: "/documents", component: DocumentsPage })
+const newDocumentRoute = createRoute({ getParentRoute: () => appRoute, path: "/documents/new", component: NewDocumentPage })
+const documentViewRoute = createRoute({ getParentRoute: () => appRoute, path: "/documents/$id", component: DocumentViewPage })
+const documentEditRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/documents/$id/edit",
+  component: lazy(() =>
+    import("@/features/documents/pages/DocumentEditPage").then((m) => ({ default: m.DocumentEditPage }))
+  ),
+})
 const settingsRoute = createRoute({ getParentRoute: () => appRoute, path: "/settings", component: SettingsPage })
 
 // ─── Tree ─────────────────────────────────────────────────────────────────────
@@ -71,7 +82,15 @@ const routeTree = rootRoute.addChildren([
   loginRoute,
   registerRoute,
   onboardingRoute,
-  appRoute.addChildren([dashboardRoute, customersRoute, documentsRoute, settingsRoute]),
+  appRoute.addChildren([
+    dashboardRoute,
+    customersRoute,
+    newDocumentRoute,
+    documentViewRoute,
+    documentEditRoute,
+    documentsRoute,
+    settingsRoute,
+  ]),
 ])
 
 export const router = createRouter({ routeTree })
