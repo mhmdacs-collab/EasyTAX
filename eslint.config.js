@@ -1,11 +1,20 @@
-// @ts-check
 import eslint from "@eslint/js";
-import tseslint from "typescript-eslint";
+import tsPlugin from "@typescript-eslint/eslint-plugin";
 
-export default tseslint.config(
+// Use @typescript-eslint/eslint-plugin flat configs directly (no typescript-eslint wrapper needed)
+const strictTypeChecked = /** @type {import("eslint").Linter.Config[]} */ (
+  tsPlugin.configs["flat/strict-type-checked"]
+);
+
+export default [
   eslint.configs.recommended,
-  ...tseslint.configs.strictTypeChecked,
+  ...strictTypeChecked,
   {
+    languageOptions: {
+      parserOptions: {
+        project: true,
+      },
+    },
     rules: {
       "@typescript-eslint/no-unused-vars": [
         "error",
@@ -19,5 +28,5 @@ export default tseslint.config(
   },
   {
     ignores: ["**/dist/**", "**/build/**", "**/node_modules/**"],
-  }
-);
+  },
+];
