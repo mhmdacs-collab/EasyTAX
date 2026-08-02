@@ -1,0 +1,29 @@
+{
+    "name": "@easytax/api",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "tsx watch src/index.ts",
+        "build": "tsc --noEmit && esbuild src/index.ts --bundle --platform=node --target=node20 --outfile=dist/index.js --external:better-auth --external:@neondatabase/serverless",
+        "start": "node dist/index.js",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@easytax/types": "workspace:*",
+        "@hono/zod-validator": "^0.9.0",
+        "@neondatabase/serverless": "^0.10.0",
+        "better-auth": "^1.0.0",
+        "drizzle-orm": "^0.45.2",
+        "hono": "^4.6.0",
+        "pg": "^8.13.0",
+        "zod": "^4.0.0"
+    },
+    "devDependencies": {
+        "@types/node": "^22.0.0",
+        "@types/pg": "^8.11.0",
+        "esbuild": "^0.24.0",
+        "tsx": "^4.19.0",
+        "typescript": "^5.5.0"
+    }
+}
