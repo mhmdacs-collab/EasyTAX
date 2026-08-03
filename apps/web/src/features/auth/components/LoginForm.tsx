@@ -19,28 +19,39 @@ type FormData = z.infer<typeof schema>
 export function LoginForm() {
   const { signIn } = useAuth()
   const navigate = useNavigate()
-  const [error, setError] = useState<string | null>(null)
+  const [error, setErrorMessage] = useState<string | null>(null)
 
-  const { register, handleSubmit, formState } = useForm<FormData>({
+  const { register, handleSubmit, setError, formState } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: { email: "", password: "" },
   })
 
   const onSubmit = async (data: FormData) => {
     try {
-      setError(null)
+      setErrorMessage(null)
       await signIn(data.email, data.password)
       const hasOrganization = (await db.organizations.count()) > 0
       await navigate({ to: hasOrganization ? "/" : "/onboarding" })
     } catch (err) {
-      setError(err instanceof Error ? err.message : "حدث خطأ، حاول مجدداً")
+      setErrorMessage(err instanceof Error ? err.message : "حدث خطأ، حاول مجدداً")
     }
   }
 
   return (
     <form
       onSubmit={(event) => {
-        void handleSubmit(onSubmit)(event)
+        void handleSubmit(onSubmit)(event).catch((err: unknown) => {
+          if (err instanceof z.ZodError) {
+            for (const issue of err.issues) {
+              const field = issue.path[0]
+              if (field === "email" || field === "password") {
+                setError(field, { type: "validate", message: issue.message })
+              }
+            }
+            return
+          }
+          throw err
+        })
       }}
       className="space-y-4"
     >
