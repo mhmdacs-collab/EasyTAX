@@ -6,14 +6,19 @@ import { Button } from "@/shared/components/ui/button"
 import { Input } from "@/shared/components/ui/input"
 import { Label } from "@/shared/components/ui/label"
 import { useAuth } from "../hooks/useAuth"
-import { db } from "@/lib/db"
+import { authClient } from "@/lib/auth/client"
+import { clearTenantStateIfVatDiff, ensureTenantContextForUser } from "@/lib/session/customerSession"
 
 const schema = z.object({
   vat_number: z
     .string()
+    .min(1, "أدخل الرقم الضريبي")
     .length(15, "الرقم الضريبي يجب أن يكون 15 رقماً")
     .regex(/^\d+$/, "أرقام فقط"),
-  password: z.string().min(8, "8 أحرف على الأقل"),
+  password: z
+    .string()
+    .min(1, "أدخل كلمة المرور")
+    .min(8, "كلمة المرور يجب أن تكون 8 أحرف على الأقل"),
 })
 
 type FormData = z.infer<typeof schema>
@@ -53,7 +58,13 @@ export function LoginForm() {
       setErrorMessage(null)
       // VAT Number is stored as the Better Auth email using the @easytax.local domain
       await signIn(`${data.vat_number}@easytax.local`, data.password)
-      const hasOrganization = (await db.organizations.count()) > 0
+      await clearTenantStateIfVatDiff(data.vat_number)
+      const session = await authClient.getSession()
+      const userId = session.data?.user.id
+      if (!userId) {
+        throw new Error("حدث خطأ غير متوقع أثناء تسجيل الدخول. حاول مرة أخرى.")
+      }
+      const hasOrganization = await ensureTenantContextForUser(userId)
       await navigate({ to: hasOrganization ? "/" : "/onboarding" })
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "حدث خطأ، حاول مجدداً")

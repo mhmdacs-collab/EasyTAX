@@ -6,6 +6,8 @@ import { Button } from "@/shared/components/ui/button"
 import { Input } from "@/shared/components/ui/input"
 import { Label } from "@/shared/components/ui/label"
 import { authClient } from "@/lib/auth/client"
+import { clearTenantStateIfVatDiff, ensureTenantContextForUser } from "@/lib/session/customerSession"
+import { mapLoginError, signInWithEmail, signOutCurrentUser } from "../hooks/useAuth"
 
 // Step 1
 const step1Schema = z.object({
@@ -82,9 +84,13 @@ export function SubscriptionActivationForm() {
     try {
       const res = await fetch(`${API_URL}/api/v1/subscription/check`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ vat_number: data.vat_number, phone: data.phone }),
         credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store",
+        },
       })
       const json = (await res.json()) as
         | { active: true; token: string; vat_number: string; phone: string; business_name: string }
@@ -109,7 +115,7 @@ export function SubscriptionActivationForm() {
       step2Form.reset({ phone: result.phone, password: "", confirmPassword: "" })
       setStep(2)
     } catch {
-      setErrorMessage("تعذر الاتصال بالخادم، حاول مجدداً.")
+      setErrorMessage("الخادم غير متاح حالياً. حاول مرة أخرى لاحقًا.")
     }
   }
 
@@ -122,11 +128,20 @@ export function SubscriptionActivationForm() {
     if (!checkResult) return
     setErrorMessage(null)
     try {
+      const currentSession = await authClient.getSession()
+      if (currentSession.data?.user) {
+        await signOutCurrentUser()
+      }
+
       const res = await fetch(`${API_URL}/api/v1/subscription/activate`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token: checkResult.token, phone: data.phone, password: data.password }),
         credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store",
+        },
       })
       const json = (await res.json()) as { success: true; email: string } | { error: string }
 
@@ -135,10 +150,22 @@ export function SubscriptionActivationForm() {
         return
       }
 
-      await authClient.signIn.email({ email: json.email, password: data.password })
+      await clearTenantStateIfVatDiff(checkResult.vat_number)
+      await signInWithEmail(json.email, data.password)
+      const session = await authClient.getSession()
+      const userId = session.data?.user.id
+      if (!userId) {
+        throw new Error("تم إنشاء الحساب ولكن تعذر تسجيل الدخول تلقائيًا. يرجى تسجيل الدخول.")
+      }
+      await ensureTenantContextForUser(userId)
       await navigate({ to: "/onboarding" })
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : "حدث خطأ، حاول مجدداً")
+      const currentMessage = err instanceof Error ? err.message : ""
+      if (currentMessage === "تم إنشاء الحساب ولكن تعذر تسجيل الدخول تلقائيًا. يرجى تسجيل الدخول.") {
+        setErrorMessage(currentMessage)
+        return
+      }
+      setErrorMessage(mapLoginError(err))
     }
   }
 

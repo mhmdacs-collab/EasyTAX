@@ -1,9 +1,9 @@
-﻿import { createRouter, createRoute, createRootRoute, redirect } from "@tanstack/react-router"
+import { createRouter, createRoute, createRootRoute, redirect } from "@tanstack/react-router"
 import { Outlet } from "@tanstack/react-router"
 import { lazy, Suspense } from "react"
 import { authClient } from "@/lib/auth/client"
-import { db } from "@/lib/db"
 import { AppLayout } from "@/layouts/AppLayout"
+import { ensureTenantContextForUser } from "@/lib/session/customerSession"
 import { Spinner } from "@/shared/components/ui/spinner"
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
@@ -40,7 +40,7 @@ const onboardingRoute = createRoute({
   beforeLoad: async () => {
     const session = await authClient.getSession()
     if (!session.data?.user) return redirect({ to: "/login" })
-    const hasOrganization = (await db.organizations.count()) > 0
+    const hasOrganization = await ensureTenantContextForUser(session.data.user.id)
     if (hasOrganization) return redirect({ to: "/" })
     return
   },
@@ -56,7 +56,7 @@ const appRoute = createRoute({
     if (!session.data?.user) {
       return redirect({ to: "/login", search: { redirect: location.href } })
     }
-    const hasOrganization = (await db.organizations.count()) > 0
+    const hasOrganization = await ensureTenantContextForUser(session.data.user.id)
     if (!hasOrganization) return redirect({ to: "/onboarding" })
     return
   },

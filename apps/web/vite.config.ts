@@ -56,6 +56,12 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/api/],
         runtimeCaching: [
           {
+            // Subscription and activation checks must always hit the server
+            // while the client is online to avoid stale access decisions.
+            urlPattern: /\/api\/v1\/subscription\/(check|activate|me|status)$/,
+            handler: "NetworkOnly",
+          },
+          {
             // Cache API calls with NetworkFirst — fallback to cache when offline
             urlPattern: /\/api\/v1\/.*/,
             handler: "NetworkFirst",

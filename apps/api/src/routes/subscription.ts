@@ -8,6 +8,28 @@ const subscriptionRouter = new Hono()
 
 const normalize = (p: string) => p.replace(/\D/g, "")
 
+subscriptionRouter.use("*", async (c, next) => {
+  c.header("Cache-Control", "no-store")
+  c.header("Pragma", "no-cache")
+  await next()
+})
+
+const getSubscriptionBlockMessage = (sub: { status: string; expires_at: string | null }) => {
+  if (sub.status === "suspended") {
+    return "تم إيقاف هذا الاشتراك مؤقتًا. يرجى التواصل معنا."
+  }
+  if (sub.status === "inactive") {
+    return "لا يوجد اشتراك فعال."
+  }
+  if (sub.expires_at && new Date(sub.expires_at) < new Date()) {
+    return "انتهى الاشتراك. يرجى تجديد الاشتراك للمتابعة."
+  }
+  if (sub.status !== "active") {
+    return "لا يوجد اشتراك فعال."
+  }
+  return null
+}
+
 // ─── POST /check ──────────────────────────────────────────────────────────────
 const checkSchema = z.object({
   vat_number: z.string().length(15, "الرقم الضريبي يجب أن يكون 15 رقماً").regex(/^\d+$/, "أرقام فقط"),
@@ -37,12 +59,9 @@ subscriptionRouter.post("/check", zValidator("json", checkSchema), async (c) => 
     activated_at: string | null
   }
 
-  if (sub.status !== "active") {
-    return c.json({ active: false, message: "لا يوجد اشتراك فعال." })
-  }
-
-  if (sub.expires_at && new Date(sub.expires_at) < new Date()) {
-    return c.json({ active: false, message: "انتهت صلاحية الاشتراك." })
+  const blockMessage = getSubscriptionBlockMessage(sub)
+  if (blockMessage) {
+    return c.json({ active: false, message: blockMessage })
   }
 
   if (normalize(sub.phone) !== normalize(phone)) {
@@ -127,11 +146,9 @@ subscriptionRouter.post("/activate", zValidator("json", activateSchema), async (
     activated_at: string | null
   }
 
-  if (sub.status !== "active") {
-    return c.json({ error: "الاشتراك غير فعال." }, 400)
-  }
-  if (sub.expires_at && new Date(sub.expires_at) < new Date()) {
-    return c.json({ error: "انتهت صلاحية الاشتراك." }, 400)
+  const blockMessage = getSubscriptionBlockMessage(sub)
+  if (blockMessage) {
+    return c.json({ error: blockMessage }, 400)
   }
   if (sub.activated_at !== null) {
     return c.json({ error: "تم تفعيل هذا الاشتراك مسبقاً." }, 400)

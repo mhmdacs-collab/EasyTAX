@@ -1,5 +1,5 @@
 import { MessageCircle, AlertCircle, Clock, ShieldOff } from "lucide-react"
-import type { EffectiveStatus } from "@/lib/subscription/useSubscriptionStatus"
+import type { EffectiveStatus } from "@/lib/subscription/api"
 
 const WHATSAPP_NUMBER = import.meta.env.VITE_WHATSAPP_NUMBER as string
 

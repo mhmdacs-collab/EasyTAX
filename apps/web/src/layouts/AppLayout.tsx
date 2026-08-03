@@ -5,12 +5,14 @@ import { useSubscriptionStatus } from "@/lib/subscription/useSubscriptionStatus"
 import { BlockedSubscriptionPage } from "@/features/subscription/BlockedSubscriptionPage"
 import { Spinner } from "@/shared/components/ui/spinner"
 import { RefreshCw } from "lucide-react"
+import { useAuth } from "@/features/auth/hooks/useAuth"
 
 export function AppLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const { data: subscription, isLoading, isError, refetch } = useSubscriptionStatus()
+  const { user, isLoading: authLoading } = useAuth()
+  const { data: subscription, isLoading, isError, refetch } = useSubscriptionStatus(user?.id)
 
-  if (isLoading) {
+  if (authLoading || isLoading) {
     return (
       <div className="flex h-screen items-center justify-center" dir="rtl">
         <div className="flex flex-col items-center gap-3 text-muted-foreground">

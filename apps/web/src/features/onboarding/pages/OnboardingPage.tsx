@@ -6,15 +6,13 @@ import { Step2Contact } from "../components/Step2Contact"
 import { Step3Confirm } from "../components/Step3Confirm"
 import { Spinner } from "@/shared/components/ui/spinner"
 import { db } from "@/lib/db"
+import { authClient } from "@/lib/auth/client"
+import { fetchCurrentSubscription } from "@/lib/subscription/api"
+import { bindOrganizationToAuthUser } from "@/lib/session/customerSession"
 import { generateId } from "@/shared/utils"
 import type { Organization } from "@/lib/db"
 
 const STEPS = ["معلومات المنشأة", "بيانات التواصل", "التأكيد"]
-
-const API_URL = (() => {
-  const v: unknown = Reflect.get(import.meta.env, "VITE_API_URL")
-  return typeof v === "string" && v.length > 0 ? v : "http://localhost:3000"
-})()
 
 export interface OnboardingData {
   business_name: string
@@ -39,19 +37,14 @@ export default function OnboardingPage() {
   useEffect(() => {
     const fetchSubscription = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/v1/subscription/me`, { credentials: "include" })
-        if (res.ok) {
-          const json = (await res.json()) as {
-            subscription: { business_name: string; vat_number: string; phone: string } | null
-          }
-          if (json.subscription) {
-            setData({
-              business_name: json.subscription.business_name,
-              vat_number: json.subscription.vat_number,
-              phone: json.subscription.phone,
-            })
-            setLockedFields(["business_name", "vat_number"])
-          }
+        const json = await fetchCurrentSubscription()
+        if (json.subscription) {
+          setData({
+            business_name: json.subscription.business_name,
+            vat_number: json.subscription.vat_number,
+            phone: json.subscription.phone,
+          })
+          setLockedFields(["business_name", "vat_number"])
         }
       } catch {
         // Network error — proceed with blank data
@@ -76,8 +69,14 @@ export default function OnboardingPage() {
     setSaving(true)
     try {
       const now = new Date().toISOString()
+      const session = await authClient.getSession()
+      const authUserId = session.data?.user.id
+      if (!authUserId) {
+        throw new Error("غير مصرح")
+      }
       const org: Organization = {
         id: generateId(),
+        auth_user_id: authUserId,
         business_name: data.business_name ?? "",
         vat_number: data.vat_number ?? "",
         commercial_registration: data.commercial_registration,
@@ -94,6 +93,7 @@ export default function OnboardingPage() {
         version: 1,
       }
       await db.organizations.add(org)
+      await bindOrganizationToAuthUser(org.id, authUserId)
       await navigate({ to: "/" })
     } catch (err) {
       console.error("Failed to save organization:", err)
