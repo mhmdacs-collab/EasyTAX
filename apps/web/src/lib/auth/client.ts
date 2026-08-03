@@ -2,6 +2,11 @@ import { createAuthClient } from "better-auth/react";
 
 export const authClient = createAuthClient({
   baseURL: import.meta.env.VITE_API_URL ?? "http://localhost:3000",
+  // The API lives on a different domain (Render) than the frontend (Vercel),
+  // so cross-site cookies must be explicitly included on every request.
+  fetchOptions: {
+    credentials: "include",
+  },
 });
 
 export const { signIn, signUp, signOut, useSession } = authClient;
