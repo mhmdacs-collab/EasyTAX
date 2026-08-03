@@ -4,6 +4,7 @@ import { logger } from "hono/logger";
 import { auth } from "./lib/auth";
 import { syncRouter } from "./routes/sync";
 import { subscriptionRouter } from "./routes/subscription";
+import { adminRouter } from "./routes/admin";
 
 const app = new Hono();
 
@@ -52,6 +53,7 @@ app.on(["GET", "POST"], "/api/auth/**", (c) => auth.handler(c.req.raw));
 app.get("/api/v1/ping", (c) => c.json({ message: "pong" }));
 app.route("/api/v1/sync", syncRouter);
 app.route("/api/v1/subscription", subscriptionRouter);
+app.route("/api/v1/admin", adminRouter);
 
 // ─── Start Server ─────────────────────────────────────────────────────────────
 const port = Number(process.env.PORT ?? 3000);
