@@ -25,7 +25,19 @@ export interface OnboardingData {
 export default function OnboardingPage() {
   const navigate = useNavigate()
   const [step, setStep] = useState(0)
-  const [data, setData] = useState<Partial<OnboardingData>>({})
+  const [data, setData] = useState<Partial<OnboardingData>>(() => {
+    // Consume pre-fill data stored by SubscriptionActivationForm (once only)
+    try {
+      const stored = sessionStorage.getItem("easytax_subscription")
+      if (stored) {
+        sessionStorage.removeItem("easytax_subscription")
+        return JSON.parse(stored) as Partial<OnboardingData>
+      }
+    } catch {
+      // sessionStorage unavailable — start blank
+    }
+    return {}
+  })
   const [saving, setSaving] = useState(false)
 
   const handleStep1 = (values: Pick<OnboardingData, "business_name" | "vat_number" | "commercial_registration">) => {

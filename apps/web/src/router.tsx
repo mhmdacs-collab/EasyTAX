@@ -17,7 +17,7 @@ const rootRoute = createRootRoute({
 
 // ─── Public pages ─────────────────────────────────────────────────────────────
 const LoginPage = lazy(() => import("@/features/auth/pages/LoginPage"))
-const RegisterPage = lazy(() => import("@/features/auth/pages/RegisterPage"))
+const RegisterPage = lazy(() => import("@/features/auth/pages/SubscriptionActivationPage"))
 
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,

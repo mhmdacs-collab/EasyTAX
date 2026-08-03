@@ -9,7 +9,10 @@ import { useAuth } from "../hooks/useAuth"
 import { db } from "@/lib/db"
 
 const schema = z.object({
-  email: z.email("بريد إلكتروني غير صالح"),
+  vat_number: z
+    .string()
+    .length(15, "الرقم الضريبي يجب أن يكون 15 رقماً")
+    .regex(/^\d+$/, "أرقام فقط"),
   password: z.string().min(8, "8 أحرف على الأقل"),
 })
 
@@ -24,7 +27,7 @@ const resolver: Resolver<FormData> = (values) => {
   const errors: Record<string, { type: string; message: string }> = {}
   for (const issue of parsed.error.issues) {
     const field = issue.path[0]
-    if (field === "email" || field === "password") {
+    if (field === "vat_number" || field === "password") {
       errors[field] = {
         type: "validate",
         message: issue.message,
@@ -38,17 +41,18 @@ const resolver: Resolver<FormData> = (values) => {
 export function LoginForm() {
   const { signIn } = useAuth()
   const navigate = useNavigate()
-  const [error, setErrorMessage] = useState<string | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const { register, handleSubmit, formState } = useForm<FormData>({
     resolver,
-    defaultValues: { email: "", password: "" },
+    defaultValues: { vat_number: "", password: "" },
   })
 
   const onSubmit = async (data: FormData) => {
     try {
       setErrorMessage(null)
-      await signIn(data.email, data.password)
+      // VAT Number is stored as the Better Auth email using the @easytax.local domain
+      await signIn(`${data.vat_number}@easytax.local`, data.password)
       const hasOrganization = (await db.organizations.count()) > 0
       await navigate({ to: hasOrganization ? "/" : "/onboarding" })
     } catch (err) {
@@ -64,9 +68,18 @@ export function LoginForm() {
       className="space-y-4"
     >
       <div className="space-y-2">
-        <Label htmlFor="email">البريد الإلكتروني</Label>
-        <Input id="email" type="email" placeholder="name@company.com" dir="ltr" autoComplete="email" {...register("email")} />
-        {formState.errors.email && <p className="text-xs text-destructive">{formState.errors.email.message}</p>}
+        <Label htmlFor="vat_number">الرقم الضريبي (VAT)</Label>
+        <Input
+          id="vat_number"
+          placeholder="300000000000003"
+          dir="ltr"
+          autoComplete="username"
+          maxLength={15}
+          {...register("vat_number")}
+        />
+        {formState.errors.vat_number && (
+          <p className="text-xs text-destructive">{formState.errors.vat_number.message}</p>
+        )}
       </div>
 
       <div className="space-y-2">
@@ -75,13 +88,19 @@ export function LoginForm() {
         {formState.errors.password && <p className="text-xs text-destructive">{formState.errors.password.message}</p>}
       </div>
 
-      {error && <div className="rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>}
+      {errorMessage && (
+        <div className="rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">{errorMessage}</div>
+      )}
 
-      <Button type="submit" className="w-full" loading={formState.isSubmitting}>تسجيل الدخول</Button>
+      <Button type="submit" className="w-full" loading={formState.isSubmitting}>
+        تسجيل الدخول
+      </Button>
 
       <p className="text-center text-sm text-muted-foreground">
         ليس لديك حساب؟{" "}
-        <Link to="/register" className="font-medium text-primary hover:underline">أنشئ حساباً</Link>
+        <Link to="/register" className="font-medium text-primary hover:underline">
+          تفعيل الاشتراك
+        </Link>
       </p>
     </form>
   )
