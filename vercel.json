@@ -1,0 +1,7 @@
+{
+  "buildCommand": "VITE_API_URL=https://easytax-api-staging.onrender.com pnpm --filter @easytax/web build",
+  "outputDirectory": "apps/web/dist",
+  "env": {
+    "VITE_API_URL": "https://easytax-api-staging.onrender.com"
+  }
+}
