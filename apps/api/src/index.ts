@@ -11,10 +11,21 @@ app.use("*", logger());
 const allowedOrigins = (process.env.FRONTEND_URL || "http://localhost:5173").split(",").map(s => s.trim()).filter(Boolean);
 if (!allowedOrigins.includes("http://localhost:5173")) allowedOrigins.push("http://localhost:5173");
 
+// Vercel generates a new hash-based preview subdomain on every deploy
+// (e.g. easy-tax-<hash>-mhmdacs-collabs-projects.vercel.app), so a static
+// allowlist alone can't keep up. Allow any *.vercel.app origin that belongs
+// to our Vercel team/project scope, in addition to the explicit allowlist.
+const vercelPreviewPattern = /^https:\/\/easy-tax-[a-z0-9-]*mhmdacs-collabs-projects\.vercel\.app$/;
+
 app.use(
   "*",
   cors({
-    origin: allowedOrigins,
+    origin: (origin) => {
+      if (!origin) return undefined;
+      if (allowedOrigins.includes(origin)) return origin;
+      if (vercelPreviewPattern.test(origin)) return origin;
+      return undefined;
+    },
     allowHeaders: ["Content-Type", "Authorization"],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     exposeHeaders: ["Content-Length"],
