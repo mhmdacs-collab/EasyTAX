@@ -21,7 +21,11 @@ export default function DashboardPage() {
   )
 
   const allDocs = useLiveQuery(() =>
-    db.documents.orderBy("created_at").reverse().toArray()
+    db.documents
+      .orderBy("created_at")
+      .reverse()
+      .toArray()
+      .catch(() => db.documents.orderBy("date").reverse().toArray())
   )
 
   const stats = useMemo(() => {
