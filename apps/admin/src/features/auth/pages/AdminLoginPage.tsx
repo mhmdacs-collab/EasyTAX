@@ -15,7 +15,7 @@ type SummaryResponse = {
 
 export default function AdminLoginPage() {
   const navigate = useNavigate()
-  const [email, setEmail] = useState("")
+  const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -26,6 +26,8 @@ export default function AdminLoginPage() {
     setError(null)
 
     try {
+      const normalizedUsername = username.trim()
+      const email = `${normalizedUsername}@easytax.local`
       const result = await authClient.signIn.email({ email, password })
       if (result.error) {
         setError(result.error.message ?? "فشل تسجيل الدخول")
@@ -54,14 +56,14 @@ export default function AdminLoginPage() {
 
         <form dir="rtl" onSubmit={(event) => { void handleLogin(event) }} className="space-y-4">
           <div className="space-y-2">
-            <label htmlFor="email" className="text-sm font-medium">البريد الإلكتروني</label>
+            <label htmlFor="username" className="text-sm font-medium">اسم المستخدم</label>
             <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(event) => { setEmail(event.target.value) }}
+              id="username"
+              type="text"
+              value={username}
+              onChange={(event) => { setUsername(event.target.value) }}
               className="w-full rounded-md border bg-background px-3 py-2 outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
-              placeholder="admin@example.com"
+              placeholder="2141204285"
               dir="ltr"
               required
             />
