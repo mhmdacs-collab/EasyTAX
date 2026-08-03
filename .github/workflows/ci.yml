@@ -16,7 +16,7 @@ jobs:
       - name: Resolve pnpm version from package.json
         id: pnpm-version
         run: |
-          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));const v=(p.packageManager&&String(p.packageManager).startsWith('pnpm@'))?String(p.packageManager).slice(5):p.engines?.pnpm;if(!v){process.stderr.write('pnpm version not found in package.json\n');process.exit(1)};fs.appendFileSync(process.env.GITHUB_OUTPUT,`version=${v}\n`);"
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));const v=(p.packageManager&&String(p.packageManager).startsWith('pnpm@'))?String(p.packageManager).slice(5):p.engines?.pnpm;if(!v){process.stderr.write('pnpm version not found in package.json\n');process.exit(1)};fs.appendFileSync(process.env.GITHUB_OUTPUT,'version='+v+'\\n');"
 
       - uses: pnpm/action-setup@v4
         with:
