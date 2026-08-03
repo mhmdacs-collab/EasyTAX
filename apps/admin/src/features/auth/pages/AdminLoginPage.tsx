@@ -63,7 +63,7 @@ export default function AdminLoginPage() {
               value={username}
               onChange={(event) => { setUsername(event.target.value) }}
               className="w-full rounded-md border bg-background px-3 py-2 outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
-              placeholder="2141204285"
+              placeholder="أدخل اسم المستخدم"
               dir="ltr"
               required
             />
