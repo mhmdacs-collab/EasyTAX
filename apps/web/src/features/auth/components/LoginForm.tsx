@@ -1,6 +1,5 @@
-﻿import { useState } from "react"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
+import { useState } from "react"
+import { useForm, type Resolver } from "react-hook-form"
 import { z } from "zod"
 import { Link, useNavigate } from "@tanstack/react-router"
 import { Button } from "@/shared/components/ui/button"
@@ -16,13 +15,33 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>
 
+const resolver: Resolver<FormData> = (values) => {
+  const parsed = schema.safeParse(values)
+  if (parsed.success) {
+    return { values: parsed.data, errors: {} }
+  }
+
+  const errors: Record<string, { type: string; message: string }> = {}
+  for (const issue of parsed.error.issues) {
+    const field = issue.path[0]
+    if (field === "email" || field === "password") {
+      errors[field] = {
+        type: "validate",
+        message: issue.message,
+      }
+    }
+  }
+
+  return { values: {}, errors }
+}
+
 export function LoginForm() {
   const { signIn } = useAuth()
   const navigate = useNavigate()
   const [error, setErrorMessage] = useState<string | null>(null)
 
-  const { register, handleSubmit, setError, formState } = useForm<FormData>({
-    resolver: zodResolver(schema),
+  const { register, handleSubmit, formState } = useForm<FormData>({
+    resolver,
     defaultValues: { email: "", password: "" },
   })
 
@@ -40,18 +59,7 @@ export function LoginForm() {
   return (
     <form
       onSubmit={(event) => {
-        void handleSubmit(onSubmit)(event).catch((err: unknown) => {
-          if (err instanceof z.ZodError) {
-            for (const issue of err.issues) {
-              const field = issue.path[0]
-              if (field === "email" || field === "password") {
-                setError(field, { type: "validate", message: issue.message })
-              }
-            }
-            return
-          }
-          throw err
-        })
+        void handleSubmit(onSubmit)(event)
       }}
       className="space-y-4"
     >
