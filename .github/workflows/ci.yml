@@ -13,9 +13,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve pnpm version from package.json
+        id: pnpm-version
+        run: |
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));const pm=typeof p.packageManager==='string'&&p.packageManager.startsWith('pnpm@')?p.packageManager.slice(5):null;const engine=typeof p.engines?.pnpm==='string'?p.engines.pnpm:null;const pick=(raw)=>{const m=raw.match(/\\d+(?:\\.\\d+){0,2}/);return m?m[0]:null};const v=pm||pick(engine||'');if(!v){process.stderr.write('pnpm version not found in package.json\\n');process.exit(1)};fs.appendFileSync(process.env.GITHUB_OUTPUT,'version='+v+'\\n');"
+
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: ${{ steps.pnpm-version.outputs.version }}
 
       - uses: actions/setup-node@v4
         with:

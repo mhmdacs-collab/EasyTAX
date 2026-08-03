@@ -1,4 +1,4 @@
-﻿import { useEffect } from "react"
+import { useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -16,7 +16,7 @@ const schema = z.object({
   vat_number: z.string().optional(),
   commercial_registration: z.string().optional(),
   phone: z.string().optional(),
-  email: z.string().email("بريد إلكتروني غير صحيح").optional().or(z.literal("")),
+  email: z.email("بريد إلكتروني غير صحيح").optional().or(z.literal("")),
   address: z.string().optional(),
   notes: z.string().optional(),
 })
@@ -62,7 +62,7 @@ export function CustomerDialog({ open, onClose, organizationId, customer }: Prop
 
   const onSubmit = form.handleSubmit(async (data) => {
     const now = new Date().toISOString()
-    if (isEdit && customer) {
+    if (customer) {
       await db.customers.update(customer.id, {
         ...data,
         updated_at: now,
@@ -97,7 +97,12 @@ export function CustomerDialog({ open, onClose, organizationId, customer }: Prop
           <DialogTitle>{isEdit ? "تعديل العميل" : "عميل جديد"}</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={onSubmit} className="space-y-4">
+        <form
+          onSubmit={(event) => {
+            void onSubmit(event)
+          }}
+          className="space-y-4"
+        >
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="name">اسم العميل *</Label>

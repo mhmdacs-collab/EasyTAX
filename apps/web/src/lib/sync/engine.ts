@@ -1,18 +1,29 @@
 ﻿import { db } from "@/lib/db"
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000"
+const resolveApiUrl = (): string => {
+  const value: unknown = Reflect.get(import.meta.env, "VITE_API_URL")
+  return typeof value === "string" && value.length > 0 ? value : "http://localhost:3000"
+}
+
+const API_URL = resolveApiUrl()
 
 export class SyncEngine {
   private running = false
   private intervalId: ReturnType<typeof setInterval> | null = null
-  private onlineHandler = () => this.sync()
+  private onlineHandler = () => {
+    void this.sync()
+  }
 
   start(intervalMs = 30_000): void {
     if (this.running) return
     this.running = true
     window.addEventListener("online", this.onlineHandler)
-    this.intervalId = setInterval(() => this.sync(), intervalMs)
-    setTimeout(() => this.sync(), 3_000)
+    this.intervalId = setInterval(() => {
+      void this.sync()
+    }, intervalMs)
+    setTimeout(() => {
+      void this.sync()
+    }, 3_000)
   }
 
   stop(): void {

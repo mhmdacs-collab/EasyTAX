@@ -12,7 +12,7 @@ const schema = z.object({
   street: z.string().optional(),
   postal_code: z.string().optional(),
   phone: z.string().optional(),
-  email: z.string().email("بريد غير صالح").optional().or(z.literal("")),
+  email: z.email("بريد غير صالح").optional().or(z.literal("")),
 })
 
 type FormData = z.infer<typeof schema>
@@ -37,7 +37,12 @@ export function Step2Contact({ defaultValues, onBack, onNext }: Props) {
   })
 
   return (
-    <form onSubmit={handleSubmit(onNext)} className="space-y-4">
+    <form
+      onSubmit={(event) => {
+        void handleSubmit(onNext)(event)
+      }}
+      className="space-y-4"
+    >
       <div>
         <h2 className="text-lg font-semibold">بيانات التواصل والعنوان</h2>
         <p className="text-sm text-muted-foreground">اختيارية — تظهر في رأس المستندات</p>

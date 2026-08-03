@@ -11,7 +11,7 @@ import { useAuth } from "../hooks/useAuth"
 const schema = z
   .object({
     name: z.string().min(2, "الاسم مطلوب"),
-    email: z.string().email("بريد إلكتروني غير صالح"),
+    email: z.email("بريد إلكتروني غير صالح"),
     password: z.string().min(8, "8 أحرف على الأقل"),
     confirmPassword: z.string(),
   })
@@ -36,14 +36,19 @@ export function RegisterForm() {
     try {
       setError(null)
       await signUp(data.name, data.email, data.password)
-      await navigate({ to: "/onboarding" })
+      await navigate({ to: "/login" })
     } catch (err) {
       setError(err instanceof Error ? err.message : "حدث خطأ، حاول مجدداً")
     }
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form
+      onSubmit={(event) => {
+        void handleSubmit(onSubmit)(event)
+      }}
+      className="space-y-4"
+    >
       <div className="space-y-2">
         <Label htmlFor="name">الاسم الكامل</Label>
         <Input id="name" placeholder="محمد أحمد" autoComplete="name" {...register("name")} />

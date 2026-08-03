@@ -31,7 +31,7 @@ export function Sidebar() {
 
       {/* Toggle button */}
       <button
-        onClick={() => setCollapsed(!collapsed)}
+        onClick={() => { setCollapsed(!collapsed) }}
         className="absolute -end-3 top-16 z-10 flex h-6 w-6 items-center justify-center rounded-full border bg-background shadow-sm hover:bg-accent"
       >
         {collapsed
@@ -73,7 +73,9 @@ export function Sidebar() {
             "w-full gap-3 text-sm text-muted-foreground hover:text-destructive",
             collapsed ? "justify-center px-0" : "justify-start"
           )}
-          onClick={signOut}
+          onClick={() => {
+            void signOut()
+          }}
           title={collapsed ? "تسجيل الخروج" : undefined}
         >
           <LogOut className="size-4 shrink-0" />

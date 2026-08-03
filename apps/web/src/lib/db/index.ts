@@ -186,6 +186,16 @@ class EasyTaxDatabase extends Dexie {
       expenses: "id, organization_id, category, date, sync_status, deleted_at",
       settings: "id, organization_id, key",
     });
+
+    this.version(2).stores({
+      organizations: "id, sync_status",
+      customers: "id, organization_id, name, vat_number, sync_status, deleted_at",
+      projects: "id, organization_id, name, customer_id, sync_status, deleted_at",
+      documents: "id, organization_id, type, status, number, date, created_at, customer_id, project_id, sync_status, deleted_at",
+      purchase_invoices: "id, organization_id, invoice_date, supplier_vat_number, sync_status, deleted_at",
+      expenses: "id, organization_id, category, date, sync_status, deleted_at",
+      settings: "id, organization_id, key",
+    });
   }
 }
 

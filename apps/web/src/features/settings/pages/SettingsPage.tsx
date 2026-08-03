@@ -9,13 +9,14 @@ import { Button } from "@/shared/components/ui/button"
 import { Input } from "@/shared/components/ui/input"
 import { Label } from "@/shared/components/ui/label"
 import { Separator } from "@/shared/components/ui/separator"
+import { toast } from "@/shared/hooks/useToast"
 
 const schema = z.object({
   business_name: z.string().min(2, "اسم المنشأة مطلوب"),
   vat_number: z.string().regex(/^\d{15}$/, "يجب أن يكون الرقم الضريبي 15 رقماً"),
   commercial_registration: z.string().optional(),
   phone: z.string().optional(),
-  email: z.string().email("بريد إلكتروني غير صحيح").optional().or(z.literal("")),
+  email: z.email("بريد إلكتروني غير صحيح").optional().or(z.literal("")),
   city: z.string().optional(),
   district: z.string().optional(),
   street: z.string().optional(),
@@ -67,7 +68,8 @@ export default function SettingsPage() {
       sync_status: "pending",
       version: org.version + 1,
     })
-    form.reset(data) // clear dirty state
+    form.reset(data)
+    toast({ title: "تم الحفظ", description: "تم تحديث بيانات المنشأة", variant: "success" }) // clear dirty state
   })
 
   if (!org) return (
@@ -83,7 +85,12 @@ export default function SettingsPage() {
         <p className="mt-1 text-sm text-muted-foreground">بيانات المنشأة التي تظهر في المستندات</p>
       </div>
 
-      <form onSubmit={onSubmit} className="space-y-6">
+      <form
+        onSubmit={(event) => {
+          void onSubmit(event)
+        }}
+        className="space-y-6"
+      >
         {/* ── Business identity ── */}
         <section className="space-y-4">
           <div className="flex items-center gap-2">

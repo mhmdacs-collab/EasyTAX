@@ -31,7 +31,7 @@ export function DocumentsPage() {
   const [typeFilter, setTypeFilter] = useState<DocumentType | "all">("all")
 
   const documents = useLiveQuery(async () => {
-    let q = db.documents.orderBy("created_at").reverse()
+    const q = db.documents.orderBy("date").reverse()
 
     const items = await q.toArray()
     return items.filter((d) => {
@@ -41,7 +41,7 @@ export function DocumentsPage() {
         const q2 = search.toLowerCase()
         return (
           d.customer_name.toLowerCase().includes(q2) ||
-          (d.number?.toLowerCase().includes(q2) ?? false)
+          d.number.toLowerCase().includes(q2)
         )
       }
       return true
@@ -74,10 +74,10 @@ export function DocumentsPage() {
             placeholder="ابحث بالاسم أو الرقم..."
             className="ps-9"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value) }}
           />
         </div>
-        <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}>
+        <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v as typeof typeFilter) }}>
           <SelectTrigger className="w-44">
             <SelectValue />
           </SelectTrigger>
@@ -85,7 +85,7 @@ export function DocumentsPage() {
             {typeOptions.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
           </SelectContent>
         </Select>
-        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
+        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v as typeof statusFilter) }}>
           <SelectTrigger className="w-36">
             <SelectValue />
           </SelectTrigger>
