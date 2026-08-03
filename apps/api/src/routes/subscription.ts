@@ -173,6 +173,69 @@ subscriptionRouter.post("/activate", zValidator("json", activateSchema), async (
   return c.json({ success: true, email })
 })
 
+// ─── GET /status ─────────────────────────────────────────────────────────────
+subscriptionRouter.get("/status", async (c) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const session = await (auth.api as any).getSession({ headers: c.req.raw.headers })
+  if (!session?.user?.id) {
+    return c.json({ error: "غير مصرح" }, 401)
+  }
+
+  const rows = await sql`
+    SELECT
+      vat_number,
+      business_name,
+      status,
+      starts_at,
+      expires_at,
+      CASE
+        WHEN status = 'suspended' THEN 'suspended'
+        WHEN status = 'inactive'  THEN 'inactive'
+        WHEN expires_at IS NOT NULL AND expires_at < NOW() THEN 'expired'
+        ELSE 'active'
+      END AS effective_status,
+      CASE
+        WHEN expires_at IS NULL THEN NULL
+        ELSE GREATEST(0, CEIL(EXTRACT(EPOCH FROM (expires_at - NOW())) / 86400.0)::int)
+      END AS remaining_days
+    FROM subscriptions
+    WHERE user_id = ${session.user.id as string}
+    LIMIT 1
+  `
+
+  if (rows.length === 0) {
+    return c.json({
+      vat_number: null,
+      business_name: null,
+      stored_status: null,
+      effective_status: "inactive",
+      starts_at: null,
+      expires_at: null,
+      remaining_days: null,
+    })
+  }
+
+  const sub = rows[0] as {
+    vat_number: string
+    business_name: string
+    status: string
+    starts_at: string | null
+    expires_at: string | null
+    effective_status: string
+    remaining_days: number | null
+  }
+
+  return c.json({
+    vat_number: sub.vat_number,
+    business_name: sub.business_name,
+    stored_status: sub.status,
+    effective_status: sub.effective_status,
+    starts_at: sub.starts_at,
+    expires_at: sub.expires_at,
+    remaining_days: sub.remaining_days,
+  })
+})
+
 // ─── GET /me ──────────────────────────────────────────────────────────────────
 subscriptionRouter.get("/me", async (c) => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
