@@ -100,7 +100,7 @@ export default function DashboardPage() {
               <div className="text-2xl font-bold">{stats?.issuedCount}</div>
             )}
             <p className="mt-1 text-xs text-muted-foreground">
-              {loading ? <Skeleton className="h-3 w-24 mt-1" /> : `${stats?.draftCount} مسودة`}
+              {loading ? <Skeleton className="h-3 w-24 mt-1" /> : `${stats?.draftCount ?? 0} مسودة`}
             </p>
           </CardContent>
         </Card>

@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react"
+﻿import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -120,22 +120,22 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
   const { register, watch, setValue } = form
   const docType = watch("type")
 
-  const buildDocument = (data: DocumentFormData, status: "draft" | "issued", number: string): Document => {
+  const buildDocument = (data: DocumentFormData, status: "draft" | "issued", number: string, orgId: string): Document => {
     const items = data.items.map((item) => ({
       ...item,
-      subtotal: calcItemSubtotal(Number(item.unit_price), Number(item.quantity), Number(item.discount_percent)),
+      subtotal: calcItemSubtotal(item.unit_price, item.quantity, item.discount_percent),
     }))
     const totals = calcDocumentTotals(
       items,
       data.vat_rate,
       data.vat_inclusive,
-      Number(data.discount_amount),
-      Number(data.retention_amount)
+      data.discount_amount,
+      data.retention_amount
     )
     const now = new Date().toISOString()
     return {
       id: draft?.id ?? generateId(),
-      organization_id: org!.id,
+      organization_id: orgId,
       type: data.type,
       status,
       number,
@@ -173,7 +173,7 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
     setIsSaving(true)
     try {
       const number = draft?.number ?? "DRAFT"
-      const doc = buildDocument(data, "draft", number)
+      const doc = buildDocument(data, "draft", number, org.id)
       if (draft) await db.documents.put(doc)
       else await db.documents.add(doc)
       await navigate({ to: "/documents" })
@@ -190,7 +190,7 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
       const number = draft?.status === "draft" && draft.number !== "DRAFT"
         ? draft.number
         : await nextDocumentNumber(org.id, data.type)
-      const doc = buildDocument(data, "issued", number)
+      const doc = buildDocument(data, "issued", number, org.id)
       if (draft) await db.documents.put(doc)
       else await db.documents.add(doc)
       await navigate({ to: "/documents/$id", params: { id: doc.id } })
@@ -203,7 +203,7 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
     <div className="mx-auto max-w-4xl space-y-6 p-6">
       {/* ── Top bar ── */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Select value={docType} onValueChange={(v) => setValue("type", v as DocumentType)}>
+        <Select value={docType} onValueChange={(v) => { setValue("type", v as DocumentType) }}>
           <SelectTrigger className="w-48">
             <SelectValue />
           </SelectTrigger>
@@ -272,7 +272,7 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
               customer_address: watch("customer_address") ?? "",
             }}
             onChange={(fields) => {
-              Object.entries(fields).forEach(([k, v]) => setValue(k as keyof DocumentFormData, v as string))
+              Object.entries(fields).forEach(([k, v]) => { setValue(k as keyof DocumentFormData, v) })
             }}
           />
           {form.formState.errors.customer_name && (

@@ -1,10 +1,9 @@
-﻿import { useEffect } from "react"
+import { useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { db, type Customer } from "@/lib/db"
 import { generateId } from "@/shared/utils"
-import { toast } from "@/shared/hooks/useToast"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
 } from "@/shared/components/ui/dialog"
@@ -17,7 +16,7 @@ const schema = z.object({
   vat_number: z.string().optional(),
   commercial_registration: z.string().optional(),
   phone: z.string().optional(),
-  email: z.string().email("بريد إلكتروني غير صحيح").optional().or(z.literal("")),
+  email: z.email("بريد إلكتروني غير صحيح").optional().or(z.literal("")),
   address: z.string().optional(),
   notes: z.string().optional(),
 })
@@ -63,7 +62,7 @@ export function CustomerDialog({ open, onClose, organizationId, customer }: Prop
 
   const onSubmit = form.handleSubmit(async (data) => {
     const now = new Date().toISOString()
-    if (isEdit && customer) {
+    if (customer) {
       await db.customers.update(customer.id, {
         ...data,
         updated_at: now,

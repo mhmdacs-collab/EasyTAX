@@ -1,7 +1,6 @@
 ﻿import { type UseFormReturn } from "react-hook-form"
 import { useMemo } from "react"
 import { Input } from "@/shared/components/ui/input"
-import { Label } from "@/shared/components/ui/label"
 import { Separator } from "@/shared/components/ui/separator"
 import { calcDocumentTotals, calcItemSubtotal } from "../lib/calculations"
 import { formatCurrency } from "@/shared/utils"
@@ -29,14 +28,14 @@ export function TotalsSection({ form }: Props) {
   const retentionAmount = watch("retention_amount")
 
   const totals = useMemo(() => {
-    const items = (watchedItems ?? []).map((item) => ({
+    const items = watchedItems.map((item) => ({
       subtotal: calcItemSubtotal(
-        Number(item.unit_price) || 0,
-        Number(item.quantity) || 0,
-        Number(item.discount_percent) || 0
+        item.unit_price || 0,
+        item.quantity || 0,
+        item.discount_percent || 0
       ),
     }))
-    return calcDocumentTotals(items, vatRate, vatInclusive, Number(discountAmount) || 0, Number(retentionAmount) || 0)
+    return calcDocumentTotals(items, vatRate, vatInclusive, discountAmount || 0, retentionAmount || 0)
   }, [watchedItems, vatRate, vatInclusive, discountAmount, retentionAmount])
 
   return (

@@ -31,7 +31,7 @@ export function Sidebar() {
 
       {/* Toggle button */}
       <button
-        onClick={() => setCollapsed(!collapsed)}
+        onClick={() => { setCollapsed(!collapsed) }}
         className="absolute -end-3 top-16 z-10 flex h-6 w-6 items-center justify-center rounded-full border bg-background shadow-sm hover:bg-accent"
       >
         {collapsed

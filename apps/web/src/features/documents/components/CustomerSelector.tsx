@@ -4,7 +4,6 @@ import { Search, UserPlus } from "lucide-react"
 import { db } from "@/lib/db"
 import { Input } from "@/shared/components/ui/input"
 import { Label } from "@/shared/components/ui/label"
-import { cn } from "@/shared/utils"
 
 interface CustomerFields {
   customer_name: string
@@ -25,7 +24,7 @@ export function CustomerSelector({ values, onChange }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
 
   const customers = useLiveQuery(
-    () => db.customers.where("deleted_at").equals("").toArray(),
+    () => db.customers.toArray().then((list) => list.filter((c) => !c.deleted_at)),
     []
   )
 
@@ -61,7 +60,7 @@ export function CustomerSelector({ values, onChange }: Props) {
             className="ps-9"
             value={open ? search : values.customer_name}
             onFocus={() => { setSearch(""); setOpen(true) }}
-            onBlur={() => setTimeout(() => setOpen(false), 150)}
+            onBlur={() => { setTimeout(() => { setOpen(false) }, 150) }}
             onChange={(e) => {
               setSearch(e.target.value)
               onChange({ customer_name: e.target.value })
@@ -75,7 +74,7 @@ export function CustomerSelector({ values, onChange }: Props) {
                     <li
                       key={c.id}
                       className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-accent"
-                      onMouseDown={() => select(c)}
+                      onMouseDown={() => { select(c) }}
                     >
                       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
                         {c.name.charAt(0)}
@@ -108,7 +107,7 @@ export function CustomerSelector({ values, onChange }: Props) {
               placeholder="300000000000000"
               dir="ltr"
               value={values.customer_vat_number}
-              onChange={(e) => onChange({ customer_vat_number: e.target.value })}
+              onChange={(e) => { onChange({ customer_vat_number: e.target.value }) }}
             />
           </div>
           <div className="space-y-1.5">
@@ -119,7 +118,7 @@ export function CustomerSelector({ values, onChange }: Props) {
               placeholder="0500000000"
               dir="ltr"
               value={values.customer_phone}
-              onChange={(e) => onChange({ customer_phone: e.target.value })}
+              onChange={(e) => { onChange({ customer_phone: e.target.value }) }}
             />
           </div>
           <div className="space-y-1.5 sm:col-span-2">
@@ -128,7 +127,7 @@ export function CustomerSelector({ values, onChange }: Props) {
               id="c_address"
               placeholder="الرياض — العليا"
               value={values.customer_address}
-              onChange={(e) => onChange({ customer_address: e.target.value })}
+              onChange={(e) => { onChange({ customer_address: e.target.value }) }}
             />
           </div>
         </div>

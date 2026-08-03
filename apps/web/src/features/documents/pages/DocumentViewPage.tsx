@@ -49,7 +49,7 @@ export function DocumentViewPage() {
               <Archive className="size-4" />أرشفة
             </Button>
           )}
-          <Button variant="outline" className="gap-2" onClick={() => window.print()}>
+          <Button variant="outline" className="gap-2" onClick={() => { window.print() }}>
             <Printer className="size-4" />طباعة / PDF
           </Button>
         </div>

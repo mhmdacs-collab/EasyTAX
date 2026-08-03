@@ -39,7 +39,7 @@ const onboardingRoute = createRoute({
   path: "/onboarding",
   beforeLoad: async () => {
     const session = await authClient.getSession()
-    if (!session?.data?.user) return redirect({ to: "/login" })
+    if (!session.data?.user) return redirect({ to: "/login" })
     const hasOrganization = (await db.organizations.count()) > 0
     if (hasOrganization) return redirect({ to: "/" })
     return
@@ -53,7 +53,7 @@ const appRoute = createRoute({
   id: "app",
   beforeLoad: async ({ location }) => {
     const session = await authClient.getSession()
-    if (!session?.data?.user) {
+    if (!session.data?.user) {
       return redirect({ to: "/login", search: { redirect: location.href } })
     }
     const hasOrganization = (await db.organizations.count()) > 0

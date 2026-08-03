@@ -16,7 +16,7 @@ const schema = z.object({
   vat_number: z.string().regex(/^\d{15}$/, "يجب أن يكون الرقم الضريبي 15 رقماً"),
   commercial_registration: z.string().optional(),
   phone: z.string().optional(),
-  email: z.string().email("بريد إلكتروني غير صحيح").optional().or(z.literal("")),
+  email: z.email("بريد إلكتروني غير صحيح").optional().or(z.literal("")),
   city: z.string().optional(),
   district: z.string().optional(),
   street: z.string().optional(),

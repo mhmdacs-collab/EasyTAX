@@ -44,8 +44,8 @@ export default function OnboardingPage() {
       const now = new Date().toISOString()
       const org: Organization = {
         id: generateId(),
-        business_name: data.business_name!,
-        vat_number: data.vat_number!,
+        business_name: data.business_name ?? "",
+        vat_number: data.vat_number ?? "",
         commercial_registration: data.commercial_registration,
         city: data.city,
         district: data.district,
@@ -82,11 +82,11 @@ export default function OnboardingPage() {
 
         <div className="rounded-xl border bg-card p-8 shadow-sm">
           {step === 0 && <Step1Business defaultValues={data} onNext={handleStep1} />}
-          {step === 1 && <Step2Contact defaultValues={data} onBack={() => setStep(0)} onNext={handleStep2} />}
+          {step === 1 && <Step2Contact defaultValues={data} onBack={() => { setStep(0) }} onNext={handleStep2} />}
           {step === 2 && (
             <Step3Confirm
               data={data as OnboardingData}
-              onBack={() => setStep(1)}
+              onBack={() => { setStep(1) }}
               onConfirm={() => {
                 void handleConfirm()
               }}

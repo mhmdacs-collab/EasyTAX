@@ -15,8 +15,9 @@ export function ItemsTable({ form }: Props) {
   const { fields, append, remove } = useFieldArray({ control, name: "items" })
   const watchedItems = watch("items")
 
-  const addItem = () =>
+  const addItem = () => {
     append({ id: generateId(), description: "", unit: "", quantity: 1, unit_price: 0, discount_percent: 0, subtotal: 0 })
+  }
 
   return (
     <div className="space-y-2">
@@ -38,9 +39,9 @@ export function ItemsTable({ form }: Props) {
               const item = watchedItems[index]
               const subtotal = item
                 ? calcItemSubtotal(
-                    Number(item.unit_price) || 0,
-                    Number(item.quantity) || 0,
-                    Number(item.discount_percent) || 0
+                    item.unit_price || 0,
+                    item.quantity || 0,
+                    item.discount_percent || 0
                   )
                 : 0
 
@@ -53,7 +54,7 @@ export function ItemsTable({ form }: Props) {
                       {...register(`items.${index}.description`)}
                     />
                     {form.formState.errors.items?.[index]?.description && (
-                      <p className="text-xs text-destructive px-3">{form.formState.errors.items[index]!.description!.message}</p>
+                      <p className="text-xs text-destructive px-3">{form.formState.errors.items[index].description.message}</p>
                     )}
                   </td>
                   <td className="px-2 py-1.5">
@@ -98,7 +99,7 @@ export function ItemsTable({ form }: Props) {
                     {fields.length > 1 && (
                       <button
                         type="button"
-                        onClick={() => remove(index)}
+                        onClick={() => { remove(index) }}
                         className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                       >
                         <Trash2 className="size-3.5" />

@@ -11,7 +11,7 @@ import { useAuth } from "../hooks/useAuth"
 const schema = z
   .object({
     name: z.string().min(2, "الاسم مطلوب"),
-    email: z.string().email("بريد إلكتروني غير صالح"),
+    email: z.email("بريد إلكتروني غير صالح"),
     password: z.string().min(8, "8 أحرف على الأقل"),
     confirmPassword: z.string(),
   })

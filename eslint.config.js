@@ -24,6 +24,10 @@ export default [
         "error",
         { prefer: "type-imports" },
       ],
+      "@typescript-eslint/restrict-template-expressions": [
+        "error",
+        { allowNumber: true },
+      ],
     },
   },
   {

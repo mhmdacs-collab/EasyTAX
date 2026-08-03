@@ -10,7 +10,7 @@ import { useAuth } from "../hooks/useAuth"
 import { db } from "@/lib/db"
 
 const schema = z.object({
-  email: z.string().email("بريد إلكتروني غير صالح"),
+  email: z.email("بريد إلكتروني غير صالح"),
   password: z.string().min(8, "8 أحرف على الأقل"),
 })
 

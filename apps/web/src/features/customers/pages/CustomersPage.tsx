@@ -18,8 +18,6 @@ export default function CustomersPage() {
   const customers = useLiveQuery(
     () =>
       db.customers
-        .where("deleted_at")
-        .equals("")
         .toArray()
         .then((list) =>
           list
@@ -44,7 +42,7 @@ export default function CustomersPage() {
           <h1 className="text-2xl font-bold">العملاء</h1>
           <p className="mt-1 text-sm text-muted-foreground">{customers?.length ?? 0} عميل</p>
         </div>
-        <Button className="gap-2" onClick={() => setAddOpen(true)}>
+        <Button className="gap-2" onClick={() => { setAddOpen(true) }}>
           <Plus className="size-4" />
           عميل جديد
         </Button>
@@ -57,7 +55,7 @@ export default function CustomersPage() {
           placeholder="ابحث بالاسم أو الرقم الضريبي أو الجوال..."
           className="ps-9"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => { setSearch(e.target.value) }}
         />
       </div>
 
@@ -84,13 +82,13 @@ export default function CustomersPage() {
                 <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                   <button
                     className="rounded p-1.5 hover:bg-muted"
-                    onClick={() => setEditTarget(c)}
+                    onClick={() => { setEditTarget(c) }}
                   >
                     <Edit2 className="size-3.5 text-muted-foreground" />
                   </button>
                   <button
                     className="rounded p-1.5 hover:bg-destructive/10"
-                    onClick={() => setDeleteTarget(c)}
+                    onClick={() => { setDeleteTarget(c) }}
                   >
                     <Trash2 className="size-3.5 text-muted-foreground hover:text-destructive" />
                   </button>
@@ -127,7 +125,7 @@ export default function CustomersPage() {
           <Building2 className="size-16 opacity-20" />
           <p className="text-lg font-medium">لا يوجد عملاء بعد</p>
           <p className="text-sm">أضف عميلك الأول لتتمكن من إنشاء المستندات بسرعة</p>
-          <Button className="gap-2" onClick={() => setAddOpen(true)}>
+          <Button className="gap-2" onClick={() => { setAddOpen(true) }}>
             <Plus className="size-4" />
             عميل جديد
           </Button>
@@ -138,21 +136,21 @@ export default function CustomersPage() {
       {org && (
         <CustomerDialog
           open={addOpen}
-          onClose={() => setAddOpen(false)}
+          onClose={() => { setAddOpen(false) }}
           organizationId={org.id}
         />
       )}
       {org && editTarget && (
         <CustomerDialog
           open={!!editTarget}
-          onClose={() => setEditTarget(null)}
+          onClose={() => { setEditTarget(null) }}
           organizationId={org.id}
           customer={editTarget}
         />
       )}
       <CustomerDeleteDialog
         customer={deleteTarget}
-        onClose={() => setDeleteTarget(null)}
+        onClose={() => { setDeleteTarget(null) }}
       />
     </div>
   )

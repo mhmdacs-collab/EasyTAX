@@ -12,7 +12,7 @@ const schema = z.object({
   street: z.string().optional(),
   postal_code: z.string().optional(),
   phone: z.string().optional(),
-  email: z.string().email("بريد غير صالح").optional().or(z.literal("")),
+  email: z.email("بريد غير صالح").optional().or(z.literal("")),
 })
 
 type FormData = z.infer<typeof schema>
