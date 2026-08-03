@@ -14,7 +14,7 @@ const schema = z.object({
     .string()
     .min(1, "أدخل الرقم الضريبي")
     .length(15, "الرقم الضريبي يجب أن يكون 15 رقماً")
-    .regex(/^\d+$/, "أرقام فقط"),
+    .regex(/^\d+$/, "صيغة الرقم الضريبي غير صحيحة."),
   password: z
     .string()
     .min(1, "أدخل كلمة المرور")
@@ -32,7 +32,7 @@ const resolver: Resolver<FormData> = (values) => {
   const errors: Record<string, { type: string; message: string }> = {}
   for (const issue of parsed.error.issues) {
     const field = issue.path[0]
-    if (field === "vat_number" || field === "password") {
+    if ((field === "vat_number" || field === "password") && !errors[field]) {
       errors[field] = {
         type: "validate",
         message: issue.message,
