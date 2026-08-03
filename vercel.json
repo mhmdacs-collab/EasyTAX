@@ -1,5 +1,0 @@
-{
-  "buildCommand": "pnpm --filter @easytax/web build",
-  "outputDirectory": "apps/web/dist"
-}
-
