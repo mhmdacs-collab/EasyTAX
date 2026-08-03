@@ -1,9 +1,9 @@
-﻿import { Outlet, useLocation } from "@tanstack/react-router"
+import { Outlet, useRouterState } from "@tanstack/react-router"
 import { Sidebar } from "./Sidebar"
 import { ErrorBoundary } from "@/shared/components/ErrorBoundary"
 
 export function AppLayout() {
-  const { pathname } = useLocation()
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar />
