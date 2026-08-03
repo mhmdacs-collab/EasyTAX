@@ -126,4 +126,14 @@ A task is complete only when:
 - No regressions are introduced.
 - The requested workflow works from the user's perspective.
 
+---
+
+## 13. Configuration Over Customization
+
+Business behavior should be configurable through Settings.
+
+Avoid creating separate implementations when configuration can solve the same problem.
+
+Temporary changes requested by a user (for example, changing quotation validity from 15 days to 7 days) should affect only the current document unless explicitly saved in Settings.
+
 Refer to `.ai/DEFINITION_OF_DONE.md` for the complete checklist.
