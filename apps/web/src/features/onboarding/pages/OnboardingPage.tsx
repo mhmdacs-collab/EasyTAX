@@ -1,14 +1,20 @@
-﻿import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { StepIndicator } from "../components/StepIndicator"
 import { Step1Business } from "../components/Step1Business"
 import { Step2Contact } from "../components/Step2Contact"
 import { Step3Confirm } from "../components/Step3Confirm"
+import { Spinner } from "@/shared/components/ui/spinner"
 import { db } from "@/lib/db"
 import { generateId } from "@/shared/utils"
 import type { Organization } from "@/lib/db"
 
 const STEPS = ["معلومات المنشأة", "بيانات التواصل", "التأكيد"]
+
+const API_URL = (() => {
+  const v: unknown = Reflect.get(import.meta.env, "VITE_API_URL")
+  return typeof v === "string" && v.length > 0 ? v : "http://localhost:3000"
+})()
 
 export interface OnboardingData {
   business_name: string
@@ -25,20 +31,36 @@ export interface OnboardingData {
 export default function OnboardingPage() {
   const navigate = useNavigate()
   const [step, setStep] = useState(0)
-  const [data, setData] = useState<Partial<OnboardingData>>(() => {
-    // Consume pre-fill data stored by SubscriptionActivationForm (once only)
-    try {
-      const stored = sessionStorage.getItem("easytax_subscription")
-      if (stored) {
-        sessionStorage.removeItem("easytax_subscription")
-        return JSON.parse(stored) as Partial<OnboardingData>
-      }
-    } catch {
-      // sessionStorage unavailable — start blank
-    }
-    return {}
-  })
+  const [data, setData] = useState<Partial<OnboardingData>>({})
+  const [lockedFields, setLockedFields] = useState<Array<"business_name" | "vat_number">>([])
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    const fetchSubscription = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/v1/subscription/me`, { credentials: "include" })
+        if (res.ok) {
+          const json = (await res.json()) as {
+            subscription: { business_name: string; vat_number: string; phone: string } | null
+          }
+          if (json.subscription) {
+            setData({
+              business_name: json.subscription.business_name,
+              vat_number: json.subscription.vat_number,
+              phone: json.subscription.phone,
+            })
+            setLockedFields(["business_name", "vat_number"])
+          }
+        }
+      } catch {
+        // Network error — proceed with blank data
+      } finally {
+        setLoading(false)
+      }
+    }
+    void fetchSubscription()
+  }, [])
 
   const handleStep1 = (values: Pick<OnboardingData, "business_name" | "vat_number" | "commercial_registration">) => {
     setData((prev) => ({ ...prev, ...values }))
@@ -79,6 +101,14 @@ export default function OnboardingPage() {
     }
   }
 
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-muted/30">
+        <Spinner size="lg" />
+      </div>
+    )
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
       <div className="w-full max-w-lg space-y-8">
@@ -93,7 +123,7 @@ export default function OnboardingPage() {
         <StepIndicator steps={STEPS} currentStep={step} />
 
         <div className="rounded-xl border bg-card p-8 shadow-sm">
-          {step === 0 && <Step1Business defaultValues={data} onNext={handleStep1} />}
+          {step === 0 && <Step1Business defaultValues={data} locked={lockedFields} onNext={handleStep1} />}
           {step === 1 && <Step2Contact defaultValues={data} onBack={() => { setStep(0) }} onNext={handleStep2} />}
           {step === 2 && (
             <Step3Confirm

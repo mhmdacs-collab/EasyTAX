@@ -1,4 +1,4 @@
-import { useState } from "react"
+﻿import { useState } from "react"
 import { useForm, type Resolver } from "react-hook-form"
 import { z } from "zod"
 import { Link, useNavigate } from "@tanstack/react-router"
@@ -7,7 +7,7 @@ import { Input } from "@/shared/components/ui/input"
 import { Label } from "@/shared/components/ui/label"
 import { authClient } from "@/lib/auth/client"
 
-// ─── Step 1 ───────────────────────────────────────────────────────────────────
+// Step 1
 const step1Schema = z.object({
   vat_number: z
     .string()
@@ -28,7 +28,7 @@ const step1Resolver: Resolver<Step1Data> = (values) => {
   return { values: {}, errors }
 }
 
-// ─── Step 2 ───────────────────────────────────────────────────────────────────
+// Step 2
 const step2Schema = z
   .object({
     phone: z.string().min(9, "أدخل رقم جوال صالح"),
@@ -52,8 +52,8 @@ const step2Resolver: Resolver<Step2Data> = (values) => {
   return { values: {}, errors }
 }
 
-// ─── Subscription response from API ───────────────────────────────────────────
-interface SubscriptionResult {
+interface CheckResult {
+  token: string
   vat_number: string
   phone: string
   business_name: string
@@ -67,10 +67,10 @@ const API_URL = (() => {
 export function SubscriptionActivationForm() {
   const navigate = useNavigate()
   const [step, setStep] = useState<1 | 2>(1)
-  const [subscription, setSubscription] = useState<SubscriptionResult | null>(null)
+  const [checkResult, setCheckResult] = useState<CheckResult | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [alreadyActivated, setAlreadyActivated] = useState(false)
 
-  // ── Step 1 form ─────────────────────────────────────────────────────────────
   const step1Form = useForm<Step1Data>({
     resolver: step1Resolver,
     defaultValues: { vat_number: "", phone: "" },
@@ -78,6 +78,7 @@ export function SubscriptionActivationForm() {
 
   const onStep1Submit = async (data: Step1Data) => {
     setErrorMessage(null)
+    setAlreadyActivated(false)
     try {
       const res = await fetch(`${API_URL}/api/v1/subscription/check`, {
         method: "POST",
@@ -86,16 +87,25 @@ export function SubscriptionActivationForm() {
         credentials: "include",
       })
       const json = (await res.json()) as
-        | { active: true; vat_number: string; phone: string; business_name: string }
-        | { active: false; message: string }
+        | { active: true; token: string; vat_number: string; phone: string; business_name: string }
+        | { active: false; already_activated?: boolean; message: string }
 
       if (!json.active) {
-        setErrorMessage(json.message)
+        if (json.already_activated) {
+          setAlreadyActivated(true)
+        } else {
+          setErrorMessage(json.message)
+        }
         return
       }
 
-      const result = { vat_number: json.vat_number, phone: json.phone, business_name: json.business_name }
-      setSubscription(result)
+      const result: CheckResult = {
+        token: json.token,
+        vat_number: json.vat_number,
+        phone: json.phone,
+        business_name: json.business_name,
+      }
+      setCheckResult(result)
       step2Form.reset({ phone: result.phone, password: "", confirmPassword: "" })
       setStep(2)
     } catch {
@@ -103,48 +113,35 @@ export function SubscriptionActivationForm() {
     }
   }
 
-  // ── Step 2 form ─────────────────────────────────────────────────────────────
   const step2Form = useForm<Step2Data>({
     resolver: step2Resolver,
     defaultValues: { phone: "", password: "", confirmPassword: "" },
   })
 
   const onStep2Submit = async (data: Step2Data) => {
-    if (!subscription) return
+    if (!checkResult) return
     setErrorMessage(null)
     try {
-      const email = `${subscription.vat_number}@easytax.local`
-      const result = await authClient.signUp.email({
-        name: subscription.business_name,
-        email,
-        password: data.password,
+      const res = await fetch(`${API_URL}/api/v1/subscription/activate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: checkResult.token, phone: data.phone, password: data.password }),
+        credentials: "include",
       })
-      if (result.error) {
-        setErrorMessage(result.error.message ?? "فشل إنشاء الحساب")
+      const json = (await res.json()) as { success: true; email: string } | { error: string }
+
+      if (!res.ok || "error" in json) {
+        setErrorMessage("error" in json ? json.error : "فشل التفعيل")
         return
       }
 
-      // Store subscription data for onboarding pre-fill (consumed once)
-      try {
-        sessionStorage.setItem(
-          "easytax_subscription",
-          JSON.stringify({
-            business_name: subscription.business_name,
-            vat_number: subscription.vat_number,
-            phone: data.phone,
-          }),
-        )
-      } catch {
-        // sessionStorage unavailable — onboarding will start blank
-      }
-
+      await authClient.signIn.email({ email: json.email, password: data.password })
       await navigate({ to: "/onboarding" })
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "حدث خطأ، حاول مجدداً")
     }
   }
 
-  // ── Render ───────────────────────────────────────────────────────────────────
   if (step === 1) {
     return (
       <form
@@ -183,6 +180,16 @@ export function SubscriptionActivationForm() {
           )}
         </div>
 
+        {alreadyActivated && (
+          <div className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+            تم تفعيل هذا الاشتراك مسبقاً. يرجى{" "}
+            <Link to="/login" className="font-medium underline">
+              تسجيل الدخول
+            </Link>
+            .
+          </div>
+        )}
+
         {errorMessage && (
           <div className="rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">{errorMessage}</div>
         )}
@@ -201,7 +208,6 @@ export function SubscriptionActivationForm() {
     )
   }
 
-  // Step 2
   return (
     <form
       onSubmit={(event) => {
@@ -211,12 +217,12 @@ export function SubscriptionActivationForm() {
     >
       <div className="space-y-2">
         <Label>اسم المنشأة</Label>
-        <Input value={subscription?.business_name ?? ""} readOnly disabled className="bg-muted/50" />
+        <Input value={checkResult?.business_name ?? ""} readOnly tabIndex={-1} className="bg-muted/50 cursor-not-allowed" />
       </div>
 
       <div className="space-y-2">
         <Label>الرقم الضريبي (VAT)</Label>
-        <Input value={subscription?.vat_number ?? ""} readOnly disabled dir="ltr" className="bg-muted/50" />
+        <Input value={checkResult?.vat_number ?? ""} readOnly tabIndex={-1} dir="ltr" className="bg-muted/50 cursor-not-allowed" />
       </div>
 
       <div className="space-y-2">
@@ -275,7 +281,7 @@ export function SubscriptionActivationForm() {
             setErrorMessage(null)
           }}
         >
-          ← رجوع
+          رجوع ←
         </Button>
         <Button type="submit" className="flex-1" loading={step2Form.formState.isSubmitting}>
           إنشاء الحساب
