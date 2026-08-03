@@ -48,3 +48,27 @@ Reason:
 Documents page represents business chronology.
 
 Never treat these fields as interchangeable.
+
+--------
+
+# Decision-002
+
+Title:
+Single Source of Truth for Tool Versions
+
+Status:
+Approved
+
+Decision:
+
+Tool versions must be declared in one place only.
+
+For pnpm, the authoritative version is:
+
+package.json -> packageManager
+
+GitHub Actions must consume that version instead of redefining it.
+
+Reason:
+
+Avoid CI failures caused by version drift.
