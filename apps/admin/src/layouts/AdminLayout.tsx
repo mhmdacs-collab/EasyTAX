@@ -17,10 +17,12 @@ export function AdminLayout() {
             <h1 className="text-lg font-bold">EasyTAX Admin</h1>
             <p className="text-xs text-muted-foreground">إدارة الاشتراكات</p>
           </div>
-          <nav className="flex items-center gap-2 text-sm">
-            <Link to="/" className="rounded-md px-3 py-2 hover:bg-secondary">الرئيسية</Link>
-            <Link to="/subscribers" className="rounded-md px-3 py-2 hover:bg-secondary">المشتركين</Link>
-            <Link to="/subscribers/new" className="rounded-md px-3 py-2 hover:bg-secondary">مشترك جديد</Link>
+          <nav className="flex flex-wrap items-center gap-1 text-sm">
+            <Link to="/" className="rounded-md px-3 py-2 hover:bg-secondary [&.active]:bg-secondary [&.active]:font-medium">الرئيسية</Link>
+            <Link to="/subscribers" className="rounded-md px-3 py-2 hover:bg-secondary [&.active]:bg-secondary [&.active]:font-medium">المشتركين</Link>
+            <Link to="/subscribers/new" className="rounded-md px-3 py-2 hover:bg-secondary [&.active]:bg-secondary [&.active]:font-medium">مشترك جديد</Link>
+            <Link to="/subscriptions/renew" search={{ vat: "" }} className="rounded-md px-3 py-2 hover:bg-secondary [&.active]:bg-secondary [&.active]:font-medium">تجديد الاشتراك</Link>
+            <Link to="/subscriptions/status" search={{ vat: "" }} className="rounded-md px-3 py-2 hover:bg-secondary [&.active]:bg-secondary [&.active]:font-medium">إيقاف/إعادة تفعيل</Link>
             <button
               type="button"
               className="rounded-md bg-secondary px-3 py-2"
@@ -38,3 +40,4 @@ export function AdminLayout() {
     </div>
   )
 }
+

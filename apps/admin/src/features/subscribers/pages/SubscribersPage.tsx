@@ -83,6 +83,7 @@ export default function SubscribersPage() {
                   <th className="px-3 py-2">بداية الاشتراك</th>
                   <th className="px-3 py-2">نهاية الاشتراك</th>
                   <th className="px-3 py-2">الأيام المتبقية</th>
+                  <th className="px-3 py-2">إجراءات</th>
                 </tr>
               </thead>
               <tbody>
@@ -96,6 +97,24 @@ export default function SubscribersPage() {
                     <td className="px-3 py-2">{formatDate(item.starts_at)}</td>
                     <td className="px-3 py-2">{formatDate(item.expires_at)}</td>
                     <td className="px-3 py-2">{item.remaining_days ?? "—"}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex gap-1">
+                        <Link
+                          to="/subscriptions/renew"
+                          search={{ vat: item.vat_number }}
+                          className="rounded px-2 py-1 text-xs bg-primary/10 text-primary hover:bg-primary/20"
+                        >
+                          تجديد
+                        </Link>
+                        <Link
+                          to="/subscriptions/status"
+                          search={{ vat: item.vat_number }}
+                          className="rounded px-2 py-1 text-xs bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                        >
+                          الحالة
+                        </Link>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -120,6 +139,22 @@ export default function SubscribersPage() {
                   <span className="text-muted-foreground">الأيام المتبقية</span>
                   <span>{item.remaining_days ?? "—"}</span>
                 </div>
+                <div className="mt-3 flex gap-2">
+                  <Link
+                    to="/subscriptions/renew"
+                    search={{ vat: item.vat_number }}
+                    className="flex-1 rounded-md bg-primary/10 px-3 py-1.5 text-center text-sm text-primary"
+                  >
+                    تجديد
+                  </Link>
+                  <Link
+                    to="/subscriptions/status"
+                    search={{ vat: item.vat_number }}
+                    className="flex-1 rounded-md bg-secondary px-3 py-1.5 text-center text-sm"
+                  >
+                    الحالة
+                  </Link>
+                </div>
               </article>
             ))}
           </div>
@@ -128,3 +163,4 @@ export default function SubscribersPage() {
     </section>
   )
 }
+

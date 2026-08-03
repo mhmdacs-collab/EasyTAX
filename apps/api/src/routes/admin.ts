@@ -182,4 +182,149 @@ adminRouter.post("/subscriptions", zValidator("json", createSubscriptionSchema),
   }
 })
 
+// ── Phase 2: lookup, renew, suspend, reactivate ──────────────────────────────
+
+const VAT_RE = /^\d{15}$/
+
+const subDetailQuery = (vatNumber: string) => sql`
+  SELECT
+    id, business_name, vat_number, phone, plan, status,
+    starts_at, expires_at,
+    CASE
+      WHEN status = 'suspended' THEN 'suspended'
+      WHEN status = 'inactive'  THEN 'inactive'
+      WHEN expires_at IS NOT NULL AND expires_at < NOW() THEN 'expired'
+      WHEN status = 'active' AND (expires_at IS NULL OR expires_at >= NOW()) THEN 'active'
+      ELSE status
+    END AS derived_status,
+    CASE
+      WHEN expires_at IS NULL THEN NULL
+      ELSE CEIL(EXTRACT(EPOCH FROM (expires_at - NOW())) / 86400.0)::int
+    END AS remaining_days
+  FROM subscriptions
+  WHERE vat_number = ${vatNumber}
+  LIMIT 1
+`
+
+adminRouter.get("/subscriptions/:vatNumber", async (c) => {
+  const authz = await requireAdminUser(c.req.raw.headers)
+  if (!authz) return c.json(fail("غير مصرح لك بالوصول.", "FORBIDDEN"), 403)
+
+  const { vatNumber } = c.req.param()
+  if (!VAT_RE.test(vatNumber)) {
+    return c.json(fail("الرقم الضريبي يجب أن يكون 15 رقماً.", "INVALID_VAT"), 422)
+  }
+
+  const rows = await subDetailQuery(vatNumber)
+  if (rows.length === 0) {
+    return c.json(fail("لا يوجد اشتراك بهذا الرقم الضريبي.", "NOT_FOUND"), 404)
+  }
+  return c.json(ok(rows[0]))
+})
+
+const renewBodySchema = z.object({
+  duration_days: z.union([z.literal(30), z.literal(90), z.literal(180), z.literal(365)]),
+})
+
+adminRouter.post("/subscriptions/:vatNumber/renew", zValidator("json", renewBodySchema), async (c) => {
+  const authz = await requireAdminUser(c.req.raw.headers)
+  if (!authz) return c.json(fail("غير مصرح لك بالوصول.", "FORBIDDEN"), 403)
+
+  const { vatNumber } = c.req.param()
+  if (!VAT_RE.test(vatNumber)) {
+    return c.json(fail("الرقم الضريبي يجب أن يكون 15 رقماً.", "INVALID_VAT"), 422)
+  }
+
+  const { duration_days } = c.req.valid("json")
+
+  // Atomic CTE: capture old value at snapshot, compute new value in UPDATE
+  const rows = await sql`
+    WITH before_update AS (
+      SELECT expires_at AS old_expires_at FROM subscriptions WHERE vat_number = ${vatNumber}
+    ),
+    after_update AS (
+      UPDATE subscriptions
+      SET
+        expires_at = CASE
+          WHEN expires_at IS NULL OR expires_at < NOW()
+            THEN NOW() + (${duration_days} * INTERVAL '1 day')
+          ELSE expires_at + (${duration_days} * INTERVAL '1 day')
+        END,
+        updated_at = NOW()
+      WHERE vat_number = ${vatNumber}
+      RETURNING
+        expires_at AS new_expires_at,
+        CEIL(EXTRACT(EPOCH FROM (expires_at - NOW())) / 86400.0)::int AS remaining_days
+    )
+    SELECT before_update.old_expires_at, after_update.new_expires_at, after_update.remaining_days
+    FROM before_update CROSS JOIN after_update
+  `
+
+  if (rows.length === 0) {
+    return c.json(fail("لا يوجد اشتراك بهذا الرقم الضريبي.", "NOT_FOUND"), 404)
+  }
+
+  const row = rows[0] as {
+    old_expires_at: string | null
+    new_expires_at: string
+    remaining_days: number | null
+  }
+
+  return c.json(ok({
+    message: "تم تجديد الاشتراك بنجاح.",
+    previous_expires_at: row.old_expires_at,
+    new_expires_at: row.new_expires_at,
+    remaining_days: row.remaining_days,
+    duration_days,
+  }))
+})
+
+adminRouter.post("/subscriptions/:vatNumber/suspend", async (c) => {
+  const authz = await requireAdminUser(c.req.raw.headers)
+  if (!authz) return c.json(fail("غير مصرح لك بالوصول.", "FORBIDDEN"), 403)
+
+  const { vatNumber } = c.req.param()
+  if (!VAT_RE.test(vatNumber)) {
+    return c.json(fail("الرقم الضريبي يجب أن يكون 15 رقماً.", "INVALID_VAT"), 422)
+  }
+
+  const updated = await sql`
+    UPDATE subscriptions SET status = 'suspended', updated_at = NOW()
+    WHERE vat_number = ${vatNumber} AND status = 'active'
+    RETURNING id
+  `
+
+  if (updated.length === 0) {
+    const exists = await sql`SELECT status FROM subscriptions WHERE vat_number = ${vatNumber} LIMIT 1`
+    if (exists.length === 0) return c.json(fail("لا يوجد اشتراك بهذا الرقم الضريبي.", "NOT_FOUND"), 404)
+    return c.json(fail("لا يمكن إيقاف هذا الاشتراك في حالته الحالية.", "INVALID_STATE"), 409)
+  }
+
+  return c.json(ok({ message: "تم إيقاف الاشتراك بنجاح." }))
+})
+
+adminRouter.post("/subscriptions/:vatNumber/reactivate", async (c) => {
+  const authz = await requireAdminUser(c.req.raw.headers)
+  if (!authz) return c.json(fail("غير مصرح لك بالوصول.", "FORBIDDEN"), 403)
+
+  const { vatNumber } = c.req.param()
+  if (!VAT_RE.test(vatNumber)) {
+    return c.json(fail("الرقم الضريبي يجب أن يكون 15 رقماً.", "INVALID_VAT"), 422)
+  }
+
+  const updated = await sql`
+    UPDATE subscriptions SET status = 'active', updated_at = NOW()
+    WHERE vat_number = ${vatNumber} AND status IN ('suspended', 'inactive')
+    RETURNING id
+  `
+
+  if (updated.length === 0) {
+    const exists = await sql`SELECT status FROM subscriptions WHERE vat_number = ${vatNumber} LIMIT 1`
+    if (exists.length === 0) return c.json(fail("لا يوجد اشتراك بهذا الرقم الضريبي.", "NOT_FOUND"), 404)
+    return c.json(fail("الاشتراك نشط بالفعل.", "ALREADY_ACTIVE"), 409)
+  }
+
+  return c.json(ok({ message: "تم إعادة تفعيل الاشتراك بنجاح." }))
+})
+
 export { adminRouter }

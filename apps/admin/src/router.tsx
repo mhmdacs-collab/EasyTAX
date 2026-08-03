@@ -25,6 +25,8 @@ const LoginPage = lazy(() => import("@/features/auth/pages/AdminLoginPage"))
 const DashboardPage = lazy(() => import("@/features/dashboard/pages/AdminDashboardPage"))
 const SubscribersPage = lazy(() => import("@/features/subscribers/pages/SubscribersPage"))
 const NewSubscriberPage = lazy(() => import("@/features/subscribers/pages/NewSubscriberPage"))
+const RenewPage = lazy(() => import("@/features/subscriptions/pages/RenewPage"))
+const StatusPage = lazy(() => import("@/features/subscriptions/pages/StatusPage"))
 
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -64,12 +66,32 @@ const newSubscriberRoute = createRoute({
   component: NewSubscriberPage,
 })
 
+const renewRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/subscriptions/renew",
+  validateSearch: (search: Record<string, unknown>) => ({
+    vat: typeof search.vat === "string" ? search.vat : "",
+  }),
+  component: RenewPage,
+})
+
+const statusRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/subscriptions/status",
+  validateSearch: (search: Record<string, unknown>) => ({
+    vat: typeof search.vat === "string" ? search.vat : "",
+  }),
+  component: StatusPage,
+})
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   appRoute.addChildren([
     dashboardRoute,
     subscribersRoute,
     newSubscriberRoute,
+    renewRoute,
+    statusRoute,
   ]),
 ])
 
@@ -80,3 +102,4 @@ declare module "@tanstack/react-router" {
     router: typeof router
   }
 }
+
