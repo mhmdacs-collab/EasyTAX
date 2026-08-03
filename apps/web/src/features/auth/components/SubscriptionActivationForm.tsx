@@ -94,7 +94,9 @@ export function SubscriptionActivationForm() {
         return
       }
 
-      setSubscription({ vat_number: json.vat_number, phone: json.phone, business_name: json.business_name })
+      const result = { vat_number: json.vat_number, phone: json.phone, business_name: json.business_name }
+      setSubscription(result)
+      step2Form.reset({ phone: result.phone, password: "", confirmPassword: "" })
       setStep(2)
     } catch {
       setErrorMessage("تعذر الاتصال بالخادم، حاول مجدداً.")
@@ -104,13 +106,8 @@ export function SubscriptionActivationForm() {
   // ── Step 2 form ─────────────────────────────────────────────────────────────
   const step2Form = useForm<Step2Data>({
     resolver: step2Resolver,
-    defaultValues: { phone: subscription?.phone ?? "", password: "", confirmPassword: "" },
+    defaultValues: { phone: "", password: "", confirmPassword: "" },
   })
-
-  // Re-initialise phone default when subscription loads
-  if (step === 2 && subscription && !step2Form.getValues("phone")) {
-    step2Form.setValue("phone", subscription.phone)
-  }
 
   const onStep2Submit = async (data: Step2Data) => {
     if (!subscription) return
