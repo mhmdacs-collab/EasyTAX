@@ -73,7 +73,9 @@ export function Sidebar() {
             "w-full gap-3 text-sm text-muted-foreground hover:text-destructive",
             collapsed ? "justify-center px-0" : "justify-start"
           )}
-          onClick={signOut}
+          onClick={() => {
+            void signOut()
+          }}
           title={collapsed ? "تسجيل الخروج" : undefined}
         >
           <LogOut className="size-4 shrink-0" />

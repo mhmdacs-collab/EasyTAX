@@ -36,10 +36,17 @@ export function CustomerDeleteDialog({ customer, onClose }: Props) {
         </p>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>إلغاء</Button>
-          <Button variant="destructive" loading={loading} onClick={confirm}>حذف</Button>
+          <Button
+            variant="destructive"
+            loading={loading}
+            onClick={() => {
+              void confirm()
+            }}
+          >
+            حذف
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   )
 }
-

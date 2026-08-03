@@ -87,7 +87,9 @@ export default function OnboardingPage() {
             <Step3Confirm
               data={data as OnboardingData}
               onBack={() => setStep(1)}
-              onConfirm={handleConfirm}
+              onConfirm={() => {
+                void handleConfirm()
+              }}
               saving={saving}
             />
           )}

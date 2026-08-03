@@ -98,7 +98,12 @@ export function CustomerDialog({ open, onClose, organizationId, customer }: Prop
           <DialogTitle>{isEdit ? "تعديل العميل" : "عميل جديد"}</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={onSubmit} className="space-y-4">
+        <form
+          onSubmit={(event) => {
+            void onSubmit(event)
+          }}
+          className="space-y-4"
+        >
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="name">اسم العميل *</Label>
@@ -148,4 +153,3 @@ export function CustomerDialog({ open, onClose, organizationId, customer }: Prop
     </Dialog>
   )
 }
-

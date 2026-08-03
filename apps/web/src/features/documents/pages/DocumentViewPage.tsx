@@ -39,7 +39,13 @@ export function DocumentViewPage() {
             </Link>
           )}
           {doc.status === "issued" && (
-            <Button variant="outline" className="gap-2" onClick={archive}>
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => {
+                void archive()
+              }}
+            >
               <Archive className="size-4" />أرشفة
             </Button>
           )}

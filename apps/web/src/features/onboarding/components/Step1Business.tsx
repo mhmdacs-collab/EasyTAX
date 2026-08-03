@@ -33,7 +33,12 @@ export function Step1Business({ defaultValues, onNext }: Props) {
   })
 
   return (
-    <form onSubmit={handleSubmit(onNext)} className="space-y-4">
+    <form
+      onSubmit={(event) => {
+        void handleSubmit(onNext)(event)
+      }}
+      className="space-y-4"
+    >
       <div>
         <h2 className="text-lg font-semibold">معلومات المنشأة</h2>
         <p className="text-sm text-muted-foreground">البيانات الأساسية المطلوبة للفواتير</p>

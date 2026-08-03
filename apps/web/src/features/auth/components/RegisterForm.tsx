@@ -36,14 +36,19 @@ export function RegisterForm() {
     try {
       setError(null)
       await signUp(data.name, data.email, data.password)
-      await navigate({ to: "/onboarding" })
+      await navigate({ to: "/login" })
     } catch (err) {
       setError(err instanceof Error ? err.message : "حدث خطأ، حاول مجدداً")
     }
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form
+      onSubmit={(event) => {
+        void handleSubmit(onSubmit)(event)
+      }}
+      className="space-y-4"
+    >
       <div className="space-y-2">
         <Label htmlFor="name">الاسم الكامل</Label>
         <Input id="name" placeholder="محمد أحمد" autoComplete="name" {...register("name")} />

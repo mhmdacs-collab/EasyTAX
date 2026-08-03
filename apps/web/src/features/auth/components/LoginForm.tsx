@@ -7,6 +7,7 @@ import { Button } from "@/shared/components/ui/button"
 import { Input } from "@/shared/components/ui/input"
 import { Label } from "@/shared/components/ui/label"
 import { useAuth } from "../hooks/useAuth"
+import { db } from "@/lib/db"
 
 const schema = z.object({
   email: z.string().email("بريد إلكتروني غير صالح"),
@@ -29,14 +30,20 @@ export function LoginForm() {
     try {
       setError(null)
       await signIn(data.email, data.password)
-      await navigate({ to: "/" })
+      const hasOrganization = (await db.organizations.count()) > 0
+      await navigate({ to: hasOrganization ? "/" : "/onboarding" })
     } catch (err) {
       setError(err instanceof Error ? err.message : "حدث خطأ، حاول مجدداً")
     }
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form
+      onSubmit={(event) => {
+        void handleSubmit(onSubmit)(event)
+      }}
+      className="space-y-4"
+    >
       <div className="space-y-2">
         <Label htmlFor="email">البريد الإلكتروني</Label>
         <Input id="email" type="email" placeholder="name@company.com" dir="ltr" autoComplete="email" {...register("email")} />

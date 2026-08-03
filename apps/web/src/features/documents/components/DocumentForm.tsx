@@ -215,11 +215,26 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
         </Select>
 
         <div className="flex gap-2">
-          <Button variant="outline" onClick={saveDraft} loading={isSaving} disabled={isIssuing} className="gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              void saveDraft()
+            }}
+            loading={isSaving}
+            disabled={isIssuing}
+            className="gap-2"
+          >
             <Save className="size-4" />
             حفظ مسودة
           </Button>
-          <Button onClick={issueDocument} loading={isIssuing} disabled={isSaving} className="gap-2">
+          <Button
+            onClick={() => {
+              void issueDocument()
+            }}
+            loading={isIssuing}
+            disabled={isSaving}
+            className="gap-2"
+          >
             <Send className="size-4" />
             إصدار المستند
           </Button>
@@ -316,4 +331,3 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
     </div>
   )
 }
-

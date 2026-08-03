@@ -85,7 +85,12 @@ export default function SettingsPage() {
         <p className="mt-1 text-sm text-muted-foreground">بيانات المنشأة التي تظهر في المستندات</p>
       </div>
 
-      <form onSubmit={onSubmit} className="space-y-6">
+      <form
+        onSubmit={(event) => {
+          void onSubmit(event)
+        }}
+        className="space-y-6"
+      >
         {/* ── Business identity ── */}
         <section className="space-y-4">
           <div className="flex items-center gap-2">
@@ -166,4 +171,3 @@ export default function SettingsPage() {
     </div>
   )
 }
-

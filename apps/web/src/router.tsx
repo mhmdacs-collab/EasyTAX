@@ -2,6 +2,7 @@
 import { Outlet } from "@tanstack/react-router"
 import { lazy, Suspense } from "react"
 import { authClient } from "@/lib/auth/client"
+import { db } from "@/lib/db"
 import { AppLayout } from "@/layouts/AppLayout"
 import { Spinner } from "@/shared/components/ui/spinner"
 
@@ -38,7 +39,10 @@ const onboardingRoute = createRoute({
   path: "/onboarding",
   beforeLoad: async () => {
     const session = await authClient.getSession()
-    if (!session?.data?.user) throw redirect({ to: "/login" })
+    if (!session?.data?.user) return redirect({ to: "/login" })
+    const hasOrganization = (await db.organizations.count()) > 0
+    if (hasOrganization) return redirect({ to: "/" })
+    return
   },
   component: OnboardingPage,
 })
@@ -50,8 +54,11 @@ const appRoute = createRoute({
   beforeLoad: async ({ location }) => {
     const session = await authClient.getSession()
     if (!session?.data?.user) {
-      throw redirect({ to: "/login", search: { redirect: location.href } })
+      return redirect({ to: "/login", search: { redirect: location.href } })
     }
+    const hasOrganization = (await db.organizations.count()) > 0
+    if (!hasOrganization) return redirect({ to: "/onboarding" })
+    return
   },
   component: AppLayout,
 })
