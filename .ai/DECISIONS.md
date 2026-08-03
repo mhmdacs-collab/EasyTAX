@@ -1,9 +1,50 @@
-Decision 001
+# Decision-001
 
-Quotes are document types.
+Title:
+Document Sorting Strategy
 
-Not a separate module.
+Status:
+Approved
+
+Date:
+2026-08-03
+
+Decision:
+
+Two different date fields have different business meanings.
+
+date
+
+- Business document date.
+- Selected by the user.
+- Used for accounting and document chronology.
+
+created_at
+
+- System creation timestamp.
+- Automatically generated.
+- Represents user activity.
+
+Rules:
+
+Dashboard
+
+Sort by:
+
+created_at DESC
 
 Reason:
 
-Reduce complexity.
+Dashboard represents recent activity.
+
+Documents List
+
+Sort by:
+
+date DESC
+
+Reason:
+
+Documents page represents business chronology.
+
+Never treat these fields as interchangeable.
