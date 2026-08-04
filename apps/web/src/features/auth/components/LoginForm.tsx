@@ -7,7 +7,8 @@ import { Input } from "@/shared/components/ui/input"
 import { Label } from "@/shared/components/ui/label"
 import { useAuth } from "../hooks/useAuth"
 import { authClient } from "@/lib/auth/client"
-import { clearTenantStateIfVatDiff, ensureTenantContextForUser } from "@/lib/session/customerSession"
+import { clearTenantStateIfVatDiff, ensureTenantContextForUser, hydrateOrganizationFromBootstrap } from "@/lib/session/customerSession"
+import { fetchCustomerBootstrap } from "@/lib/subscription/api"
 
 const schema = z.object({
   vat_number: z
@@ -69,8 +70,16 @@ export function LoginForm() {
       if (!userId) {
         throw new Error("حدث خطأ غير متوقع. حاول مرة أخرى.")
       }
-      const hasOrganization = await ensureTenantContextForUser(userId)
-      await navigate({ to: hasOrganization ? "/" : "/onboarding" })
+      try {
+        const bootstrap = await fetchCustomerBootstrap()
+        await hydrateOrganizationFromBootstrap(bootstrap.organization, userId)
+        await navigate({ to: "/" })
+      } catch {
+        // Legacy accounts created by the old activation flow do not have a
+        // centralized organization yet. Keep their existing onboarding path.
+        const hasOrganization = await ensureTenantContextForUser(userId)
+        await navigate({ to: hasOrganization ? "/" : "/onboarding" })
+      }
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "حدث خطأ، حاول مجدداً")
     }
