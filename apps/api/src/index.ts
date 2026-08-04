@@ -7,6 +7,8 @@ import { syncRouter } from "./routes/sync";
 import { subscriptionRouter } from "./routes/subscription";
 import { adminRouter } from "./routes/admin";
 import { bootstrapRouter } from "./routes/bootstrap";
+import { settingsRouter } from "./routes/settings";
+import { customersRouter } from "./routes/customers";
 
 const app = new Hono();
 
@@ -100,6 +102,8 @@ app.route("/api/v1/sync", syncRouter);
 app.route("/api/v1/subscription", subscriptionRouter);
 app.route("/api/v1/admin", adminRouter);
 app.route("/api/v1/bootstrap", bootstrapRouter);
+app.route("/api/v1/settings", settingsRouter);
+app.route("/api/v1/customers", customersRouter);
 
 // ─── Start Server ─────────────────────────────────────────────────────────────
 const port = Number(process.env.PORT ?? 3000);

@@ -172,6 +172,8 @@ export default function OnboardingPage() {
       if (!data.city.trim()) next.city = REQUIRED
       if (!data.district.trim()) next.district = REQUIRED
       if (!data.street.trim()) next.street = REQUIRED
+      if (!/^\d{4}$/.test(data.building_number)) next.building_number = "رقم المبنى مطلوب ويتكون من 4 أرقام"
+      if (!/^\d{5}$/.test(data.postal_code)) next.postal_code = "الرمز البريدي مطلوب ويتكون من 5 أرقام"
       if (data.bank_enabled) {
         if (!data.bank_name.trim()) next.bank_name = REQUIRED
         if (!data.bank_account_name.trim()) next.bank_account_name = REQUIRED

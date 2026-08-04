@@ -123,8 +123,8 @@ export type CompleteOnboardingInput = {
   city: string
   district: string
   street: string
-  building_number?: string
-  postal_code?: string
+  building_number: string
+  postal_code: string
   short_address?: string
   bank_enabled: boolean
   bank_name?: string
