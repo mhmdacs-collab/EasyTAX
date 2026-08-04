@@ -33,7 +33,14 @@ export class ErrorBoundary extends Component<Props, State> {
           <p className="text-sm text-muted-foreground">{this.state.error?.message}</p>
           <button
             className="rounded-md border px-4 py-2 text-sm hover:bg-accent"
-            onClick={() => { this.setState({ hasError: false, error: null }) }}
+            onClick={() => {
+              const message = this.state.error?.message ?? ""
+              if (/dynamically imported module|module script failed|loading chunk/i.test(message)) {
+                window.location.reload()
+                return
+              }
+              this.setState({ hasError: false, error: null })
+            }}
           >
             حاول مجدداً
           </button>
