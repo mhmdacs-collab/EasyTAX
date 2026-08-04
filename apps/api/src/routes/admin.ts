@@ -135,9 +135,7 @@ adminRouter.get("/subscriptions", zValidator("query", listQuerySchema), async (c
 const createSubscriptionSchema = z.object({
   business_name: z.string().min(2, "اسم المنشأة مطلوب"),
   vat_number: z.string().length(15, "الرقم الضريبي يجب أن يكون 15 رقماً").regex(/^\d+$/, "أرقام فقط"),
-  phone: z.string().min(9, "رقم الجوال غير صالح"),
-  email: z.string().email("البريد الإلكتروني غير صالح").optional(),
-  password: z.string().min(8, "كلمة المرور يجب أن تكون 8 أحرف على الأقل"),
+  phone: z.string().min(9, "رقم الجوال غير صالح").max(15, "رقم الجوال غير صالح").regex(/^\d+$/, "أرقام فقط"),
   plan: z.string().min(1, "الباقة مطلوبة"),
   duration_days: z.union([
     z.literal(30),
@@ -170,7 +168,7 @@ adminRouter.post("/subscriptions", zValidator("json", createSubscriptionSchema),
     const signUpResult = await (auth.api as any).signUpEmail({
       body: {
         email: loginEmail,
-        password: body.password,
+        password: body.phone,
         name: body.business_name,
       },
     })
@@ -188,7 +186,7 @@ adminRouter.post("/subscriptions", zValidator("json", createSubscriptionSchema),
         `INSERT INTO organizations (
           id, user_id, business_name, vat_number, phone, email, status
         ) VALUES ($1, $2, $3, $4, $5, $6, 'active')`,
-        [organizationId, userId, body.business_name, body.vat_number, body.phone, body.email ?? null],
+        [organizationId, userId, body.business_name, body.vat_number, body.phone, null],
       )
 
       const result = await client.query(
