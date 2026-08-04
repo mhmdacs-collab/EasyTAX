@@ -109,7 +109,7 @@ bootstrapRouter.get("/me", async (c) => {
 })
 
 const completeOnboardingSchema = z.object({
-  commercial_registration: z.string().optional(),
+  commercial_registration: z.string().trim().min(1, "رقم السجل التجاري مطلوب"),
   phone: z.string().optional(),
   email: z.string().email().optional().or(z.literal("")),
   city: z.string().optional(),

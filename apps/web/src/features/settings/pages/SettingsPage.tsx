@@ -14,7 +14,7 @@ import { toast } from "@/shared/hooks/useToast"
 const schema = z.object({
   business_name: z.string().min(2, "اسم المنشأة مطلوب"),
   vat_number: z.string().regex(/^\d{15}$/, "يجب أن يكون الرقم الضريبي 15 رقماً"),
-  commercial_registration: z.string().optional(),
+  commercial_registration: z.string().trim().min(1, "رقم السجل التجاري مطلوب"),
   phone: z.string().optional(),
   email: z.email("بريد إلكتروني غير صحيح").optional().or(z.literal("")),
   city: z.string().optional(),
@@ -139,8 +139,11 @@ export default function SettingsPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="cr">السجل التجاري</Label>
+              <Label htmlFor="cr">رقم السجل التجاري *</Label>
               <Input id="cr" placeholder="1234567890" dir="ltr" {...form.register("commercial_registration")} />
+              {form.formState.errors.commercial_registration && (
+                <p className="text-xs text-destructive">{form.formState.errors.commercial_registration.message}</p>
+              )}
             </div>
 
             <div className="space-y-1.5">
