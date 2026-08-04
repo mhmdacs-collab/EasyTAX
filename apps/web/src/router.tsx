@@ -3,12 +3,12 @@ import { Outlet } from "@tanstack/react-router"
 import { lazy, Suspense, useEffect, useState } from "react"
 import { authClient } from "@/lib/auth/client"
 import { AppLayout } from "@/layouts/AppLayout"
-import { ensureTenantContextForUser, bindOrganizationToAuthUser } from "@/lib/session/customerSession"
+import { ensureTenantContextForUser, bindOrganizationToAuthUser, hydrateOrganizationFromBootstrap } from "@/lib/session/customerSession"
 import { Spinner } from "@/shared/components/ui/spinner"
 import { useAuth } from "@/features/auth/hooks/useAuth"
 import { useSubscriptionStatus } from "@/lib/subscription/useSubscriptionStatus"
 import { BlockedSubscriptionPage } from "@/features/subscription/BlockedSubscriptionPage"
-import { fetchCurrentSubscription } from "@/lib/subscription/api"
+import { fetchCustomerBootstrap, fetchCurrentSubscription } from "@/lib/subscription/api"
 import { db } from "@/lib/db"
 import { generateId } from "@/shared/utils"
 import { useNavigate } from "@tanstack/react-router"
@@ -24,18 +24,11 @@ const rootRoute = createRootRoute({
 
 // ─── Public pages ─────────────────────────────────────────────────────────────
 const LoginPage = lazy(() => import("@/features/auth/pages/LoginPage"))
-const RegisterPage = lazy(() => import("@/features/auth/pages/SubscriptionActivationPage"))
 
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
   component: LoginPage,
-})
-
-const registerRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/register",
-  component: RegisterPage,
 })
 
 // ─── Onboarding (requires auth, no org yet) ───────────────────────────────────
@@ -117,8 +110,17 @@ const onboardingRoute = createRoute({
   beforeLoad: async () => {
     const session = await authClient.getSession()
     if (!session.data?.user) return redirect({ to: "/login" })
-    const hasOrganization = await ensureTenantContextForUser(session.data.user.id)
-    if (hasOrganization) return redirect({ to: "/" })
+    try {
+      const bootstrap = await fetchCustomerBootstrap()
+      if (bootstrap.organization.onboarding_completed_at) {
+        await hydrateOrganizationFromBootstrap(bootstrap.organization, session.data.user.id)
+        return redirect({ to: "/" })
+      }
+      return
+    } catch {
+      const hasOrganization = await ensureTenantContextForUser(session.data.user.id)
+      if (hasOrganization) return redirect({ to: "/" })
+    }
     return
   },
   component: OnboardingGuarded,
@@ -164,7 +166,6 @@ const settingsRoute = createRoute({ getParentRoute: () => appRoute, path: "/sett
 // ─── Tree ─────────────────────────────────────────────────────────────────────
 const routeTree = rootRoute.addChildren([
   loginRoute,
-  registerRoute,
   onboardingRoute,
   appRoute.addChildren([
     dashboardRoute,

@@ -4,12 +4,14 @@ import { useNavigate } from "@tanstack/react-router"
 const WRONG_CREDENTIALS_MESSAGE = "الرقم الضريبي أو كلمة المرور غير صحيحة."
 const SERVER_UNAVAILABLE_MESSAGE = "تعذر الاتصال بالخادم. تحقق من الإنترنت وحاول مرة أخرى."
 const RATE_LIMIT_MESSAGE = "محاولات كثيرة. حاول مرة أخرى بعد قليل."
+const ACCOUNT_DISABLED_MESSAGE = "الحساب موقوف أو محذوف. يرجى التواصل مع الإدارة."
 const UNEXPECTED_LOGIN_ERROR_MESSAGE = "حدث خطأ غير متوقع. حاول مرة أخرى."
 
 const KNOWN_ARABIC_MESSAGES = new Set([
   WRONG_CREDENTIALS_MESSAGE,
   SERVER_UNAVAILABLE_MESSAGE,
   RATE_LIMIT_MESSAGE,
+  ACCOUNT_DISABLED_MESSAGE,
   UNEXPECTED_LOGIN_ERROR_MESSAGE,
 ])
 
@@ -45,6 +47,13 @@ export function mapLoginError(error: unknown): string {
   const status = readStatus(error)
   const code = readCode(error)
 
+  if (
+    code === "ACCOUNT_DISABLED" ||
+    status === 403 ||
+    /account.*disabled|الحساب موقوف أو محذوف/i.test(message)
+  ) {
+    return ACCOUNT_DISABLED_MESSAGE
+  }
   if (
     code === "INVALID_EMAIL_OR_PASSWORD" ||
     status === 401 ||

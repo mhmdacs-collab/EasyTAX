@@ -84,3 +84,59 @@ export async function bindOrganizationToAuthUser(
   // whose Dexie org was cleared by a different company's activation
   localStorage.setItem(`et_onboarded_${authUserId}`, "1")
 }
+
+
+export type BootstrapOrganization = {
+  id: string
+  business_name: string
+  vat_number: string
+  phone: string | null
+  email: string | null
+  commercial_registration: string | null
+  city: string | null
+  district: string | null
+  street: string | null
+  building_number: string | null
+  postal_code: string | null
+  short_address: string | null
+}
+
+export async function hydrateOrganizationFromBootstrap(
+  organization: BootstrapOrganization,
+  authUserId: string
+): Promise<void> {
+  const existing = await db.organizations
+    .where("vat_number")
+    .equals(organization.vat_number)
+    .first()
+
+  // Preserve an existing local-first tenant and all records linked to its local
+  // identifier. Newly provisioned customers use the centralized identifier.
+  if (existing) {
+    await bindOrganizationToAuthUser(existing.id, authUserId)
+    return
+  }
+
+  const now = new Date().toISOString()
+  await db.organizations.put({
+    id: organization.id,
+    auth_user_id: authUserId,
+    business_name: organization.business_name,
+    vat_number: organization.vat_number,
+    phone: organization.phone ?? undefined,
+    email: organization.email ?? undefined,
+    commercial_registration: organization.commercial_registration ?? undefined,
+    city: organization.city ?? undefined,
+    district: organization.district ?? undefined,
+    street: organization.street ?? undefined,
+    building_number: organization.building_number ?? undefined,
+    postal_code: organization.postal_code ?? undefined,
+    short_address: organization.short_address ?? undefined,
+    subscription_status: "active",
+    created_at: now,
+    updated_at: now,
+    sync_status: "synced",
+    version: 1,
+  })
+  await bindOrganizationToAuthUser(organization.id, authUserId)
+}

@@ -1,7 +1,7 @@
 import { Hono } from "hono"
 import { z } from "zod"
 import { zValidator } from "@hono/zod-validator"
-import { sql } from "../lib/db"
+import { sql, withTransaction } from "../lib/db"
 import { auth } from "../lib/auth"
 
 type SessionUser = {
@@ -38,18 +38,17 @@ adminRouter.get("/summary", async (c) => {
     SELECT
       COUNT(*)::int AS total_subscribers,
       COUNT(*) FILTER (
-        WHERE status = 'active' AND (expires_at IS NULL OR expires_at >= NOW())
+        WHERE status = 'active' AND subscription_expires_at >= NOW()
       )::int AS active_subscriptions,
       COUNT(*) FILTER (
-        WHERE expires_at IS NOT NULL AND expires_at < NOW()
+        WHERE subscription_expires_at < NOW()
       )::int AS expired_subscriptions,
       COUNT(*) FILTER (
         WHERE status = 'active'
-          AND expires_at IS NOT NULL
-          AND expires_at >= NOW()
-          AND expires_at < NOW() + INTERVAL '30 days'
+          AND subscription_expires_at >= NOW()
+          AND subscription_expires_at < NOW() + INTERVAL '30 days'
       )::int AS expiring_in_30_days
-    FROM subscriptions
+    FROM organizations
   `
 
   const row = rows[0] as {
@@ -87,22 +86,19 @@ adminRouter.get("/subscriptions", zValidator("query", listQuerySchema), async (c
         phone,
         plan,
         status,
-        starts_at,
-        expires_at,
+        subscription_starts_at AS starts_at,
+        subscription_expires_at AS expires_at,
         CASE
           WHEN status = 'suspended' THEN 'suspended'
           WHEN status = 'inactive' THEN 'inactive'
-          WHEN expires_at IS NOT NULL AND expires_at < NOW() THEN 'expired'
-          WHEN status = 'active' AND (expires_at IS NULL OR expires_at >= NOW()) THEN 'active'
+          WHEN subscription_expires_at < NOW() THEN 'expired'
+          WHEN status = 'active' AND subscription_expires_at >= NOW() THEN 'active'
           ELSE status
         END AS derived_status,
-        CASE
-          WHEN expires_at IS NULL THEN NULL
-          ELSE CEIL(EXTRACT(EPOCH FROM (expires_at - NOW())) / 86400.0)::int
-        END AS remaining_days
-      FROM subscriptions
+        CEIL(EXTRACT(EPOCH FROM (subscription_expires_at - NOW())) / 86400.0)::int AS remaining_days
+      FROM organizations
       WHERE business_name ILIKE ${search} OR vat_number ILIKE ${search}
-      ORDER BY expires_at ASC NULLS LAST
+      ORDER BY subscription_expires_at ASC
     `
     : await sql`
       SELECT
@@ -112,21 +108,18 @@ adminRouter.get("/subscriptions", zValidator("query", listQuerySchema), async (c
         phone,
         plan,
         status,
-        starts_at,
-        expires_at,
+        subscription_starts_at AS starts_at,
+        subscription_expires_at AS expires_at,
         CASE
           WHEN status = 'suspended' THEN 'suspended'
           WHEN status = 'inactive' THEN 'inactive'
-          WHEN expires_at IS NOT NULL AND expires_at < NOW() THEN 'expired'
-          WHEN status = 'active' AND (expires_at IS NULL OR expires_at >= NOW()) THEN 'active'
+          WHEN subscription_expires_at < NOW() THEN 'expired'
+          WHEN status = 'active' AND subscription_expires_at >= NOW() THEN 'active'
           ELSE status
         END AS derived_status,
-        CASE
-          WHEN expires_at IS NULL THEN NULL
-          ELSE CEIL(EXTRACT(EPOCH FROM (expires_at - NOW())) / 86400.0)::int
-        END AS remaining_days
-      FROM subscriptions
-      ORDER BY expires_at ASC NULLS LAST
+        CEIL(EXTRACT(EPOCH FROM (subscription_expires_at - NOW())) / 86400.0)::int AS remaining_days
+      FROM organizations
+      ORDER BY subscription_expires_at ASC
     `
 
   return c.json(ok(rows))
@@ -135,7 +128,7 @@ adminRouter.get("/subscriptions", zValidator("query", listQuerySchema), async (c
 const createSubscriptionSchema = z.object({
   business_name: z.string().min(2, "اسم المنشأة مطلوب"),
   vat_number: z.string().length(15, "الرقم الضريبي يجب أن يكون 15 رقماً").regex(/^\d+$/, "أرقام فقط"),
-  phone: z.string().min(9, "رقم الجوال غير صالح"),
+  phone: z.string().min(9, "رقم الجوال غير صالح").max(15, "رقم الجوال غير صالح").regex(/^\d+$/, "أرقام فقط"),
   plan: z.string().min(1, "الباقة مطلوبة"),
   duration_days: z.union([
     z.literal(30),
@@ -150,35 +143,106 @@ adminRouter.post("/subscriptions", zValidator("json", createSubscriptionSchema),
   if (!authz) return c.json(fail("غير مصرح لك بالوصول.", "FORBIDDEN"), 403)
 
   const body = c.req.valid("json")
-  try {
-    const rows = await sql`
-      INSERT INTO subscriptions (
-        business_name, vat_number, phone, plan, status, starts_at, expires_at, activated_at, user_id
-      ) VALUES (
-        ${body.business_name},
-        ${body.vat_number},
-        ${body.phone},
-        ${body.plan},
-        'active',
-        NOW(),
-        NOW() + (${String(body.duration_days) + " days"})::interval,
-        NULL,
-        NULL
-      )
-      RETURNING
-        id, business_name, vat_number, phone, plan, status, starts_at, expires_at, activated_at, user_id
-    `
+  const loginEmail = `${body.vat_number}@easytax.local`
+  let createdUserId: string | null = null
 
-    return c.json(ok({
-      message: "تم إنشاء الاشتراك بنجاح.",
-      subscription: rows[0],
-    }), 201)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    if (message.includes("subscriptions_vat_unique") || message.includes("duplicate key")) {
+  try {
+    const existing = await sql`
+      SELECT id FROM organizations WHERE vat_number = ${body.vat_number} LIMIT 1
+    `
+    if (existing.length > 0) {
       return c.json(fail("الرقم الضريبي مستخدم مسبقاً.", "DUPLICATE_VAT"), 409)
     }
-    return c.json(fail("تعذر إنشاء الاشتراك.", "CREATE_FAILED"), 400)
+
+    // Better Auth owns password hashing and account creation.
+    // If the following database transaction fails, the newly-created auth rows
+    // are removed in the catch block so no half-created customer remains.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const signUpResult = await (auth.api as any).signUpEmail({
+      body: {
+        email: loginEmail,
+        password: body.phone,
+        name: body.business_name,
+      },
+    })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    createdUserId = (signUpResult as any).user?.id as string | undefined ?? null
+    if (!createdUserId) {
+      throw new Error("AUTH_USER_NOT_CREATED")
+    }
+
+    const organizationId = crypto.randomUUID()
+    const userId = createdUserId
+
+    const organization = await withTransaction(async (client) => {
+      await client.query(
+        `UPDATE "user"
+         SET username = $1, must_change_password = TRUE, updated_at = NOW()
+         WHERE id = $2`,
+        [body.vat_number, userId],
+      )
+
+      const result = await client.query(
+        `INSERT INTO organizations (
+          id, user_id, business_name, vat_number, phone, plan,
+          subscription_duration_days, subscription_starts_at,
+          subscription_expires_at, status
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW() + ($7 * INTERVAL '1 day'), 'active')
+        RETURNING id, business_name, vat_number, phone, plan, status,
+          subscription_starts_at AS starts_at,
+          subscription_expires_at AS expires_at,
+          user_id`,
+        [organizationId, userId, body.business_name, body.vat_number, body.phone, body.plan, body.duration_days],
+      )
+
+      await client.query(
+        `INSERT INTO payment_methods (organization_id, name, is_collected, is_default)
+         VALUES ($1, 'cash', TRUE, TRUE), ($1, 'card', TRUE, TRUE), ($1, 'bank_transfer', TRUE, TRUE)`,
+        [organizationId],
+      )
+      await client.query(
+        `INSERT INTO document_sequences (organization_id, document_type)
+         VALUES ($1, 'invoice'), ($1, 'quotation'), ($1, 'receipt')`,
+        [organizationId],
+      )
+      return result.rows[0]
+    })
+
+    return c.json(ok({
+      message: "تم إنشاء العميل وحساب الدخول بنجاح.",
+      login: {
+        vat_number: body.vat_number,
+        email: loginEmail,
+      },
+      organization: {
+        id: organizationId,
+        business_name: body.business_name,
+        vat_number: body.vat_number,
+      },
+      subscription: organization,
+    }), 201)
+  } catch (error) {
+    if (createdUserId) {
+      try {
+        await sql`DELETE FROM session WHERE user_id = ${createdUserId}`
+        await sql`DELETE FROM account WHERE user_id = ${createdUserId}`
+        await sql`DELETE FROM "user" WHERE id = ${createdUserId}`
+      } catch (cleanupError) {
+        console.error("Failed to compensate auth user creation", cleanupError)
+      }
+    }
+
+    const message = error instanceof Error ? error.message : String(error)
+    if (
+      message.includes("organizations_vat_number_key") ||
+      message.includes("duplicate key")
+    ) {
+      return c.json(fail("الرقم الضريبي مستخدم مسبقاً.", "DUPLICATE_VAT"), 409)
+    }
+    if (/user already exists|email.*exists|already registered/i.test(message)) {
+      return c.json(fail("يوجد حساب مرتبط بهذا الرقم الضريبي مسبقاً.", "DUPLICATE_USER"), 409)
+    }
+    return c.json(fail("تعذر إنشاء العميل.", "CREATE_FAILED"), 400)
   }
 })
 
@@ -189,19 +253,16 @@ const VAT_RE = /^\d{15}$/
 const subDetailQuery = (vatNumber: string) => sql`
   SELECT
     id, business_name, vat_number, phone, plan, status,
-    starts_at, expires_at,
+    subscription_starts_at AS starts_at, subscription_expires_at AS expires_at,
     CASE
       WHEN status = 'suspended' THEN 'suspended'
       WHEN status = 'inactive'  THEN 'inactive'
-      WHEN expires_at IS NOT NULL AND expires_at < NOW() THEN 'expired'
-      WHEN status = 'active' AND (expires_at IS NULL OR expires_at >= NOW()) THEN 'active'
+      WHEN subscription_expires_at < NOW() THEN 'expired'
+      WHEN status = 'active' AND subscription_expires_at >= NOW() THEN 'active'
       ELSE status
     END AS derived_status,
-    CASE
-      WHEN expires_at IS NULL THEN NULL
-      ELSE CEIL(EXTRACT(EPOCH FROM (expires_at - NOW())) / 86400.0)::int
-    END AS remaining_days
-  FROM subscriptions
+    CEIL(EXTRACT(EPOCH FROM (subscription_expires_at - NOW())) / 86400.0)::int AS remaining_days
+  FROM organizations
   WHERE vat_number = ${vatNumber}
   LIMIT 1
 `
@@ -240,21 +301,22 @@ adminRouter.post("/subscriptions/:vatNumber/renew", zValidator("json", renewBody
   // Atomic CTE: capture old value at snapshot, compute new value in UPDATE
   const rows = await sql`
     WITH before_update AS (
-      SELECT expires_at AS old_expires_at FROM subscriptions WHERE vat_number = ${vatNumber}
+      SELECT subscription_expires_at AS old_expires_at FROM organizations WHERE vat_number = ${vatNumber}
     ),
     after_update AS (
-      UPDATE subscriptions
+      UPDATE organizations
       SET
-        expires_at = CASE
-          WHEN expires_at IS NULL OR expires_at < NOW()
+        subscription_expires_at = CASE
+          WHEN subscription_expires_at < NOW()
             THEN NOW() + (${duration_days} * INTERVAL '1 day')
-          ELSE expires_at + (${duration_days} * INTERVAL '1 day')
+          ELSE subscription_expires_at + (${duration_days} * INTERVAL '1 day')
         END,
+        subscription_duration_days = subscription_duration_days + ${duration_days},
         updated_at = NOW()
       WHERE vat_number = ${vatNumber}
       RETURNING
-        expires_at AS new_expires_at,
-        CEIL(EXTRACT(EPOCH FROM (expires_at - NOW())) / 86400.0)::int AS remaining_days
+        subscription_expires_at AS new_expires_at,
+        CEIL(EXTRACT(EPOCH FROM (subscription_expires_at - NOW())) / 86400.0)::int AS remaining_days
     )
     SELECT before_update.old_expires_at, after_update.new_expires_at, after_update.remaining_days
     FROM before_update CROSS JOIN after_update
@@ -288,14 +350,22 @@ adminRouter.post("/subscriptions/:vatNumber/suspend", async (c) => {
     return c.json(fail("الرقم الضريبي يجب أن يكون 15 رقماً.", "INVALID_VAT"), 422)
   }
 
-  const updated = await sql`
-    UPDATE subscriptions SET status = 'suspended', updated_at = NOW()
-    WHERE vat_number = ${vatNumber} AND status = 'active'
-    RETURNING id
-  `
+  const updated = await withTransaction(async (client) => {
+    const result = await client.query(
+      `UPDATE organizations SET status = 'suspended', updated_at = NOW()
+       WHERE vat_number = $1 AND status = 'active' RETURNING id, user_id`,
+      [vatNumber],
+    )
+    if (result.rowCount) {
+      const userId = result.rows[0].user_id as string
+      await client.query(`UPDATE "user" SET status = 'suspended', updated_at = NOW() WHERE id = $1`, [userId])
+      await client.query(`DELETE FROM session WHERE user_id = $1`, [userId])
+    }
+    return result.rows
+  })
 
   if (updated.length === 0) {
-    const exists = await sql`SELECT status FROM subscriptions WHERE vat_number = ${vatNumber} LIMIT 1`
+    const exists = await sql`SELECT status FROM organizations WHERE vat_number = ${vatNumber} LIMIT 1`
     if (exists.length === 0) return c.json(fail("لا يوجد اشتراك بهذا الرقم الضريبي.", "NOT_FOUND"), 404)
     return c.json(fail("لا يمكن إيقاف هذا الاشتراك في حالته الحالية.", "INVALID_STATE"), 409)
   }
@@ -312,14 +382,20 @@ adminRouter.post("/subscriptions/:vatNumber/reactivate", async (c) => {
     return c.json(fail("الرقم الضريبي يجب أن يكون 15 رقماً.", "INVALID_VAT"), 422)
   }
 
-  const updated = await sql`
-    UPDATE subscriptions SET status = 'active', updated_at = NOW()
-    WHERE vat_number = ${vatNumber} AND status IN ('suspended', 'inactive')
-    RETURNING id
-  `
+  const updated = await withTransaction(async (client) => {
+    const result = await client.query(
+      `UPDATE organizations SET status = 'active', updated_at = NOW()
+       WHERE vat_number = $1 AND status IN ('suspended', 'inactive') RETURNING id, user_id`,
+      [vatNumber],
+    )
+    if (result.rowCount) {
+      await client.query(`UPDATE "user" SET status = 'active', updated_at = NOW() WHERE id = $1`, [result.rows[0].user_id])
+    }
+    return result.rows
+  })
 
   if (updated.length === 0) {
-    const exists = await sql`SELECT status FROM subscriptions WHERE vat_number = ${vatNumber} LIMIT 1`
+    const exists = await sql`SELECT status FROM organizations WHERE vat_number = ${vatNumber} LIMIT 1`
     if (exists.length === 0) return c.json(fail("لا يوجد اشتراك بهذا الرقم الضريبي.", "NOT_FOUND"), 404)
     return c.json(fail("الاشتراك نشط بالفعل.", "ALREADY_ACTIVE"), 409)
   }
