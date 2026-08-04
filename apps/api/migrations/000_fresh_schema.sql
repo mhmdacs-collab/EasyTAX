@@ -71,6 +71,8 @@ CREATE TABLE organizations (
   phone TEXT NOT NULL,
   phone_e164 TEXT,
   email TEXT,
+  show_phone_on_documents BOOLEAN NOT NULL DEFAULT FALSE,
+  show_email_on_documents BOOLEAN NOT NULL DEFAULT FALSE,
   country TEXT NOT NULL DEFAULT 'Saudi Arabia',
   country_code TEXT NOT NULL DEFAULT 'SA',
   city TEXT, district TEXT, street TEXT,

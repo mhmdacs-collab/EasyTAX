@@ -16,6 +16,8 @@ export interface Organization {
   commercial_registration?: string;
   phone?: string;
   email?: string;
+  show_phone_on_documents?: boolean;
+  show_email_on_documents?: boolean;
   city?: string;
   district?: string;
   street?: string;

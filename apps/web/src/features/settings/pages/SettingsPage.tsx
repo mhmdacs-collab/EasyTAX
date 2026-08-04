@@ -17,6 +17,8 @@ const schema = z.object({
   commercial_registration: z.string().trim().min(1, "رقم السجل التجاري مطلوب"),
   phone: z.string().optional(),
   email: z.email("بريد إلكتروني غير صحيح").optional().or(z.literal("")),
+  show_phone_on_documents: z.boolean(),
+  show_email_on_documents: z.boolean(),
   city: z.string().optional(),
   district: z.string().optional(),
   street: z.string().optional(),
@@ -38,6 +40,8 @@ export default function SettingsPage() {
       commercial_registration: "",
       phone: "",
       email: "",
+      show_phone_on_documents: false,
+      show_email_on_documents: false,
       city: "",
       district: "",
       street: "",
@@ -56,6 +60,8 @@ export default function SettingsPage() {
         commercial_registration: org.commercial_registration ?? "",
         phone: org.phone ?? "",
         email: org.email ?? "",
+        show_phone_on_documents: org.show_phone_on_documents ?? false,
+        show_email_on_documents: org.show_email_on_documents ?? false,
         city: org.city ?? "",
         district: org.district ?? "",
         street: org.street ?? "",
@@ -149,6 +155,10 @@ export default function SettingsPage() {
             <div className="space-y-1.5">
               <Label htmlFor="phone">رقم الجوال</Label>
               <Input id="phone" type="tel" placeholder="0500000000" dir="ltr" {...form.register("phone")} />
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input type="checkbox" {...form.register("show_phone_on_documents")} />
+                إظهار رقم الجوال في المستندات الصادرة
+              </label>
             </div>
 
             <div className="space-y-1.5">
@@ -157,6 +167,10 @@ export default function SettingsPage() {
               {form.formState.errors.email && (
                 <p className="text-xs text-destructive">{form.formState.errors.email.message}</p>
               )}
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input type="checkbox" {...form.register("show_email_on_documents")} />
+                إظهار البريد الإلكتروني في المستندات الصادرة
+              </label>
             </div>
           </div>
         </section>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react"
 import { Button } from "@/shared/components/ui/button"
@@ -26,6 +26,8 @@ export interface OnboardingData {
   commercial_registration: string
   phone: string
   email: string
+  show_phone_on_documents: boolean
+  show_email_on_documents: boolean
   city: string
   district: string
   street: string
@@ -55,7 +57,8 @@ export interface OnboardingData {
 
 const initialData: OnboardingData = {
   business_name: "", vat_number: "", organization_id: "", country: "المملكة العربية السعودية",
-  commercial_registration: "", phone: "", email: "", city: "", district: "", street: "",
+  commercial_registration: "", phone: "", email: "", show_phone_on_documents: false, show_email_on_documents: false,
+  city: "", district: "", street: "",
   building_number: "", postal_code: "", short_address: "", new_password: "", confirm_password: "",
   bank_enabled: false, bank_name: "", bank_account_name: "", iban: "", logo_url: "", stamp_url: "", signature_url: "",
   stamp_on_invoice: false, stamp_on_quotation: false, stamp_on_receipt: false,
@@ -69,14 +72,14 @@ const initialData: OnboardingData = {
   quotation_terms: [],
 }
 
-function Field({ label, name, value, error, onChange, type = "text", placeholder, optional = false, disabled = false, description }: {
+function Field({ label, name, value, error, onChange, type = "text", placeholder, optional = false, disabled = false, description, autoComplete }: {
   label: string; name: string; value: string; error?: string; onChange: (value: string) => void
-  type?: string; placeholder?: string; optional?: boolean; disabled?: boolean; description?: string
+  type?: string; placeholder?: string; optional?: boolean; disabled?: boolean; description?: string; autoComplete?: string
 }) {
   return <div className="space-y-2">
     <Label htmlFor={name}>{label}{optional ? " (اختياري)" : disabled ? "" : " *"}</Label>
     {description && <p className="text-xs leading-5 text-muted-foreground">{description}</p>}
-    <Input id={name} type={type} value={value} disabled={disabled} placeholder={placeholder} dir={type === "text" ? "auto" : "ltr"}
+    <Input id={name} name={name} type={type} value={value} disabled={disabled} placeholder={placeholder} autoComplete={autoComplete} dir={type === "text" ? "auto" : "ltr"}
       className={cn(error && "border-destructive focus-visible:ring-destructive")}
       onChange={(event) => { onChange(event.target.value); }} />
     {error && <p className="text-xs text-destructive">{error}</p>}
@@ -116,6 +119,7 @@ export default function OnboardingPage() {
   const [assetError, setAssetError] = useState("")
   const [passwordChanged, setPasswordChanged] = useState(false)
   const [originalPhone, setOriginalPhone] = useState("")
+  const stepTopRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     void fetchCustomerBootstrap().then((bootstrap) => {
@@ -125,7 +129,9 @@ export default function OnboardingPage() {
         business_name: organization.business_name, vat_number: organization.vat_number,
         organization_id: organization.id, country: "المملكة العربية السعودية",
         commercial_registration: organization.commercial_registration ?? "", phone: organization.phone ?? "",
-        email: organization.email ?? "", city: organization.city ?? "", district: organization.district ?? "",
+        email: organization.email ?? "", show_phone_on_documents: organization.show_phone_on_documents,
+        show_email_on_documents: organization.show_email_on_documents,
+        city: organization.city ?? "", district: organization.district ?? "",
         street: organization.street ?? "", building_number: organization.building_number ?? "",
         postal_code: organization.postal_code ?? "", short_address: organization.short_address ?? "",
         bank_enabled: organization.bank_enabled, bank_name: organization.bank_name ?? "",
@@ -139,6 +145,12 @@ export default function OnboardingPage() {
       }))
     }).catch(() => { setFatalError("تعذر تحميل بيانات المنشأة. حاول تسجيل الدخول مرة أخرى."); }).finally(() => { setLoading(false); })
   }, [])
+
+  useEffect(() => {
+    if (loading) return
+    stepTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    stepTopRef.current?.focus({ preventScroll: true })
+  }, [loading, step])
 
   const progress = `${Math.round(((step + 1) / STEPS.length) * 100)}%`
   const set = <K extends keyof OnboardingData>(key: K, value: OnboardingData[K]) => {
@@ -201,6 +213,7 @@ export default function OnboardingPage() {
       }
       await completeCustomerOnboarding({
         commercial_registration: data.commercial_registration, phone: data.phone, email: data.email,
+        show_phone_on_documents: data.show_phone_on_documents, show_email_on_documents: data.show_email_on_documents,
         city: data.city, district: data.district, street: data.street, building_number: data.building_number,
         postal_code: data.postal_code, short_address: data.short_address, bank_enabled: data.bank_enabled,
         bank_name: data.bank_name, bank_account_name: data.bank_account_name, iban: data.iban,
@@ -218,7 +231,8 @@ export default function OnboardingPage() {
       const organization: Organization = {
         id: data.organization_id, auth_user_id: authUserId, business_name: data.business_name,
         vat_number: data.vat_number, commercial_registration: data.commercial_registration, phone: data.phone,
-        email: data.email, city: data.city, district: data.district, street: data.street,
+        email: data.email, show_phone_on_documents: data.show_phone_on_documents,
+        show_email_on_documents: data.show_email_on_documents, city: data.city, district: data.district, street: data.street,
         building_number: data.building_number, postal_code: data.postal_code, short_address: data.short_address,
         logo_url: data.logo_url, stamp_url: data.stamp_url, signature_url: data.signature_url,
         bank_enabled: data.bank_enabled, bank_name: data.bank_name, bank_account_name: data.bank_account_name,
@@ -248,17 +262,17 @@ export default function OnboardingPage() {
         <div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary transition-all" style={{ width: progress }} /></div>
         <div className="hidden justify-between text-[11px] text-muted-foreground sm:flex">{STEPS.map((name, index) => <span key={name} className={cn(index === step && "font-bold text-primary")}>{name}</span>)}</div></div>
 
-      <main className="rounded-xl border bg-card p-5 shadow-sm sm:p-8">
+      <main ref={stepTopRef} tabIndex={-1} className="scroll-mt-4 rounded-xl border bg-card p-5 shadow-sm outline-none sm:p-8">
         {step === 0 && <section className="space-y-6">
           <div><h2 className="text-lg font-semibold">بيانات المنشأة والأمان</h2><p className="text-sm leading-6 text-muted-foreground">تأكد من بيانات اشتراكك، ثم أنشئ كلمة مرور جديدة بدل كلمة المرور المؤقتة.</p></div>
           <Field label="اسم النشاط" name="business_name" value={data.business_name} onChange={() => undefined} disabled description="اسم النشاط مسجل من لوحة الإدارة، ويظهر في مستندات المنشأة ولا يمكن تغييره من هنا." />
           <Field label="الرقم الضريبي" name="vat_number" value={data.vat_number} onChange={() => undefined} disabled description="الرقم الضريبي هو اسم المستخدم للدخول، وهو مرتبط بالاشتراك ولا يمكن تعديله." />
-          <Field label="رقم السجل التجاري" name="commercial_registration" value={data.commercial_registration} error={errors.commercial_registration} onChange={(value) => { set("commercial_registration", value); }} placeholder="1010123456" description="أدخل رقم السجل التجاري الرسمي للمنشأة؛ سيظهر ضمن بياناتها القانونية." />
+          <Field label="رقم السجل التجاري" name="commercial_registration" value={data.commercial_registration} error={errors.commercial_registration} onChange={(value) => { set("commercial_registration", value); }} placeholder="1010123456" autoComplete="off" description="أدخل رقم السجل التجاري الرسمي للمنشأة؛ سيظهر ضمن بياناتها القانونية." />
           <Field label="الدولة" name="country" value={data.country} onChange={() => undefined} disabled description="النظام مهيأ حاليًا للمنشآت داخل المملكة العربية السعودية." />
           <Field label="معرف النظام" name="organization_id" value={data.organization_id} onChange={() => undefined} disabled description="معرف فريد ينشئه النظام لربط جميع بيانات وفواتير منشأتك. احتفظ به عند التواصل مع الدعم." />
           <div className="border-t pt-6"><h3 className="mb-1 font-semibold">بيانات الدخول الجديدة</h3><p className="mb-5 text-sm leading-6 text-muted-foreground">اختر كلمة مرور خاصة بك لا تقل عن 8 أحرف. بعد الحفظ لن تعمل كلمة المرور المؤقتة.</p>
-            <div className="space-y-5"><Field label="كلمة المرور الجديدة" name="new_password" type="password" value={data.new_password} error={errors.new_password} onChange={(value) => { set("new_password", value); }} />
-              <Field label="تأكيد كلمة المرور" name="confirm_password" type="password" value={data.confirm_password} error={errors.confirm_password} onChange={(value) => { set("confirm_password", value); }} /></div></div>
+            <div className="space-y-5"><Field label="كلمة المرور الجديدة" name="new_password" type="password" value={data.new_password} error={errors.new_password} autoComplete="new-password" onChange={(value) => { set("new_password", value); }} />
+              <Field label="تأكيد كلمة المرور" name="confirm_password" type="password" value={data.confirm_password} error={errors.confirm_password} autoComplete="new-password" onChange={(value) => { set("confirm_password", value); }} /></div></div>
         </section>}
 
         {step === 1 && <section className="space-y-6">
@@ -291,8 +305,10 @@ export default function OnboardingPage() {
 
         {step === 3 && <section className="space-y-7">
           <div><h2 className="text-lg font-semibold">بيانات التواصل وشعار المنشأة</h2><p className="text-sm leading-6 text-muted-foreground">هذه البيانات اختيارية، لكنها تساعدك على إرسال المستندات وإظهار هوية منشأتك بصورة احترافية.</p></div>
-          <Field label="رقم الجوال" name="phone" value={data.phone} optional onChange={(value) => { set("phone", value); }} description="يُستخدم للتواصل وإرسال الفواتير والمستندات مباشرة إلى العملاء عند تفعيل خدمات الإرسال." />
-          <Field label="البريد الإلكتروني" name="email" type="email" value={data.email} error={errors.email} optional onChange={(value) => { set("email", value); }} description="يُستخدم كعنوان إرسال للفواتير وعروض الأسعار والإشعارات إلى العملاء." />
+          <div className="space-y-3"><Field label="رقم الجوال" name="phone" value={data.phone} optional onChange={(value) => { set("phone", value); }} description="يُستخدم للتواصل وإرسال الفواتير والمستندات مباشرة إلى العملاء عند تفعيل خدمات الإرسال." />
+            <Toggle checked={data.show_phone_on_documents} onChange={(value) => { set("show_phone_on_documents", value); }} label="إظهار رقم الجوال في المستندات الصادرة" description="فعّل هذا الخيار إذا رغبت أن يرى العميل رقم التواصل في الفاتورة أو عرض السعر أو سند القبض." /></div>
+          <div className="space-y-3"><Field label="البريد الإلكتروني" name="email" type="email" value={data.email} error={errors.email} optional onChange={(value) => { set("email", value); }} description="يُستخدم كعنوان إرسال للفواتير وعروض الأسعار والإشعارات إلى العملاء." />
+            <Toggle checked={data.show_email_on_documents} onChange={(value) => { set("show_email_on_documents", value); }} label="إظهار البريد الإلكتروني في المستندات الصادرة" description="فعّل هذا الخيار إذا كان البريد وسيلة التواصل المفضلة لعملائك." /></div>
           <div className="space-y-3 border-t pt-6"><h3 className="font-semibold">شعار المنشأة</h3><p className="text-sm leading-6 text-muted-foreground">يظهر الشعار في جميع المستندات الصادرة. الملف يجب أن يكون بصيغة PNG وبحجم لا يتجاوز 2MB.</p><Input type="file" accept="image/png" onChange={(event) => void upload("logo_url", event.target.files?.[0])} />{data.logo_url && <img src={data.logo_url} alt="الشعار" className="h-24 w-full rounded-lg border object-contain p-2" />}</div>
           <div className="space-y-3 border-t pt-6"><h3 className="font-semibold">الختم</h3><p className="text-sm leading-6 text-muted-foreground">الختم اختياري وليس شرطًا لصحة الفاتورة. بعد رفعه يمكنك تحديد المستندات التي يظهر فيها.</p><Input type="file" accept="image/png" onChange={(event) => void upload("stamp_url", event.target.files?.[0])} />{data.stamp_url && <><img src={data.stamp_url} alt="الختم" className="h-24 w-full rounded-lg border object-contain p-2" /><div className="grid gap-2 sm:grid-cols-3"><Toggle checked={data.stamp_on_invoice} onChange={(v) => { set("stamp_on_invoice", v); }} label="الفاتورة الضريبية" /><Toggle checked={data.stamp_on_quotation} onChange={(v) => { set("stamp_on_quotation", v); }} label="عرض السعر" /><Toggle checked={data.stamp_on_receipt} onChange={(v) => { set("stamp_on_receipt", v); }} label="سند القبض" /></div></>}</div>
           <div className="space-y-3 border-t pt-6"><h3 className="font-semibold">التوقيع</h3><p className="text-sm leading-6 text-muted-foreground">التوقيع اختياري، ويمكن إظهاره أو إخفاؤه بصورة مستقلة لكل نوع مستند.</p><Input type="file" accept="image/png" onChange={(event) => void upload("signature_url", event.target.files?.[0])} />{data.signature_url && <><img src={data.signature_url} alt="التوقيع" className="h-24 w-full rounded-lg border object-contain p-2" /><div className="grid gap-2 sm:grid-cols-3"><Toggle checked={data.signature_on_invoice} onChange={(v) => { set("signature_on_invoice", v); }} label="الفاتورة الضريبية" /><Toggle checked={data.signature_on_quotation} onChange={(v) => { set("signature_on_quotation", v); }} label="عرض السعر" /><Toggle checked={data.signature_on_receipt} onChange={(v) => { set("signature_on_receipt", v); }} label="سند القبض" /></div></>}</div>
