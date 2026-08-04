@@ -53,6 +53,7 @@ export const auth = betterAuth({
   trustedOrigins: [
     process.env.FRONTEND_URL ?? "http://localhost:5173",
     "http://localhost:5173",
+    "https://easy-tax-web.vercel.app",
     // Vercel generates a new hash-based preview subdomain on every deploy
     // (e.g. easy-tax-<hash>-mhmdacs-collabs-projects.vercel.app). Better Auth
     // supports wildcard origin patterns, so trust any preview URL under our

@@ -14,6 +14,7 @@ const app = new Hono();
 app.use("*", logger());
 const allowedOrigins = (process.env.FRONTEND_URL || "http://localhost:5173").split(",").map(s => s.trim()).filter(Boolean);
 if (!allowedOrigins.includes("http://localhost:5173")) allowedOrigins.push("http://localhost:5173");
+if (!allowedOrigins.includes("https://easy-tax-web.vercel.app")) allowedOrigins.push("https://easy-tax-web.vercel.app");
 
 // Vercel generates a new hash-based preview subdomain on every deploy
 // (e.g. easy-tax-<hash>-mhmdacs-collabs-projects.vercel.app), so a static
