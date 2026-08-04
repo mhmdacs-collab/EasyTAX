@@ -39,6 +39,8 @@ export function Step3Confirm({ data, onBack, onConfirm, saving }: Props) {
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">التواصل</p>
             <Row label="المدينة" value={[data.city, data.district].filter(Boolean).join(" - ")} />
             <Row label="الشارع" value={data.street} />
+            <Row label="رقم المبنى" value={data.building_number} />
+            <Row label="الرمز البريدي" value={data.postal_code} />
             <Row label="الجوال" value={data.phone} />
             <Row label="البريد" value={data.email} />
           </>

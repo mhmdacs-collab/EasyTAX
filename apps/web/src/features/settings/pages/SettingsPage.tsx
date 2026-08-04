@@ -20,6 +20,7 @@ const schema = z.object({
   city: z.string().optional(),
   district: z.string().optional(),
   street: z.string().optional(),
+  building_number: z.string().optional(),
   postal_code: z.string().optional(),
 })
 
@@ -39,6 +40,7 @@ export default function SettingsPage() {
       city: "",
       district: "",
       street: "",
+      building_number: "",
       postal_code: "",
     },
   })
@@ -55,6 +57,7 @@ export default function SettingsPage() {
         city: org.city ?? "",
         district: org.district ?? "",
         street: org.street ?? "",
+        building_number: org.building_number ?? "",
         postal_code: org.postal_code ?? "",
       })
     }
@@ -169,6 +172,10 @@ export default function SettingsPage() {
             <div className="space-y-1.5">
               <Label htmlFor="street">الشارع</Label>
               <Input id="street" placeholder="شارع العروبة" {...form.register("street")} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="building_number">رقم المبنى</Label>
+              <Input id="building_number" placeholder="1234" dir="ltr" {...form.register("building_number")} />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="postal_code">الرمز البريدي</Label>

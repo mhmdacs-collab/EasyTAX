@@ -19,6 +19,7 @@ export interface Organization {
   city?: string;
   district?: string;
   street?: string;
+  building_number?: string;
   postal_code?: string;
   logo_url?: string;
   signature_url?: string;

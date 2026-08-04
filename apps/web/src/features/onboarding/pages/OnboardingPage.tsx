@@ -21,6 +21,7 @@ export interface OnboardingData {
   city?: string
   district?: string
   street?: string
+  building_number?: string
   postal_code?: string
   phone?: string
   email?: string
@@ -60,7 +61,7 @@ export default function OnboardingPage() {
     setStep(1)
   }
 
-  const handleStep2 = (values: Pick<OnboardingData, "city" | "district" | "street" | "postal_code" | "phone" | "email">) => {
+  const handleStep2 = (values: Pick<OnboardingData, "city" | "district" | "street" | "building_number" | "postal_code" | "phone" | "email">) => {
     setData((prev) => ({ ...prev, ...values }))
     setStep(2)
   }
@@ -83,6 +84,7 @@ export default function OnboardingPage() {
         city: data.city,
         district: data.district,
         street: data.street,
+        building_number: data.building_number,
         postal_code: data.postal_code,
         phone: data.phone,
         email: data.email,

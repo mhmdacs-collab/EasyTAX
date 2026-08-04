@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS organizations (
   vat_number TEXT NOT NULL,
   phone TEXT,
   email TEXT,
+  building_number TEXT,
   status TEXT NOT NULL DEFAULT 'active'
     CHECK (status IN ('active', 'inactive', 'suspended')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
