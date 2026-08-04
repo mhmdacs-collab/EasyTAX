@@ -1,183 +1,105 @@
-﻿import { useParams, Link } from "@tanstack/react-router"
-import { useLiveQuery } from "dexie-react-hooks"
-import { Printer, Archive, Edit } from "lucide-react"
-import { db } from "@/lib/db"
+import { useEffect, useState } from "react"
+import { Link, useParams } from "@tanstack/react-router"
+import { Pencil, Printer } from "lucide-react"
+import { fetchDocument, type CentralDocument } from "@/lib/platform/api"
 import { Button } from "@/shared/components/ui/button"
 import { Separator } from "@/shared/components/ui/separator"
-import { DocumentTypeBadge } from "../components/DocumentTypeBadge"
-import { DocumentStatusBadge } from "../components/DocumentStatusBadge"
-import { DOCUMENT_TYPE_LABELS } from "../lib/calculations"
-import { ZatcaQrCode } from "@/lib/zatca/ZatcaQrCode"
 import { formatCurrency, formatDate } from "@/shared/utils"
+
+type OrganizationSnapshot = {
+  business_name?: string
+  vat_number?: string
+  commercial_registration?: string
+  city?: string
+  district?: string
+  street?: string
+  building_number?: string
+  postal_code?: string
+  bank_name?: string
+  bank_account_name?: string
+  iban?: string
+}
 
 export function DocumentViewPage() {
   const { id } = useParams({ from: "/app/documents/$id" })
-  const doc = useLiveQuery(() => db.documents.get(id), [id])
-  const org = useLiveQuery(() => db.organizations.toArray().then((r) => r[0]))
+  const [document, setDocument] = useState<CentralDocument>()
 
-  if (!doc) return (
-    <div className="flex h-full items-center justify-center text-muted-foreground">
-      جاري التحميل...
-    </div>
-  )
+  useEffect(() => {
+    void fetchDocument(id).then((result) => { setDocument(result.document) })
+  }, [id])
 
-  const archive = async () => {
-    await db.documents.update(id, { status: "archived", updated_at: new Date().toISOString(), sync_status: "pending" })
-  }
+  if (!document) return <p className="p-6 text-muted-foreground">جاري تحميل المستند...</p>
+
+  const seller = document.organization_snapshot as OrganizationSnapshot
+  const customer = document.customer_snapshot
+  const hasUnits = document.items?.some((item) => Boolean(item.unit?.trim())) ?? false
+  const sellerAddress = [seller.street, seller.building_number, seller.district, seller.city, seller.postal_code].filter(Boolean).join("، ")
+  const customerAddress = [customer.street, customer.building_number, customer.district, customer.city, customer.postal_code].filter(Boolean).join("، ")
 
   return (
-    <div className="min-h-screen bg-muted/20 p-4">
-      {/* Action bar (hidden on print) */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 print:hidden">
-        <Link to="/documents" className="text-sm text-muted-foreground hover:underline">
-          ← العودة للمستندات
-        </Link>
+    <div className="min-h-screen bg-muted/20 p-3 sm:p-6" dir="rtl">
+      <div className="mx-auto mb-3 flex max-w-4xl items-center justify-between print:hidden">
+        <Link to="/documents" className="text-sm text-muted-foreground">العودة للفواتير</Link>
         <div className="flex gap-2">
-          {doc.status === "draft" && (
-            <Link to="/documents/$id/edit" params={{ id: doc.id }}>
-              <Button variant="outline" className="gap-2"><Edit className="size-4" />تعديل</Button>
-            </Link>
-          )}
-          {doc.status === "issued" && (
-            <Button
-              variant="outline"
-              className="gap-2"
-              onClick={() => {
-                void archive()
-              }}
-            >
-              <Archive className="size-4" />أرشفة
+          {document.status === "draft" ? (
+            <Button asChild variant="outline" className="gap-2">
+              <Link to="/documents/$id/edit" params={{ id }}><Pencil className="size-4" />تعديل المسودة</Link>
             </Button>
-          )}
+          ) : null}
           <Button variant="outline" className="gap-2" onClick={() => { window.print() }}>
             <Printer className="size-4" />طباعة / PDF
           </Button>
         </div>
       </div>
 
-      {/* Document card */}
-      <div className="mx-auto max-w-3xl rounded-lg border bg-white p-8 shadow-sm print:max-w-none print:shadow-none print:border-0">
-        {/* Header */}
-        <div className="mb-6 flex items-start justify-between">
+      <article className="mx-auto max-w-4xl rounded-xl border bg-white p-5 shadow-sm sm:p-8 print:border-0 print:shadow-none">
+        <header className="flex justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold">{DOCUMENT_TYPE_LABELS[doc.type]}</h1>
-            {doc.number && doc.number !== "DRAFT" ? (
-              <p className="font-mono text-lg font-semibold text-primary mt-1" dir="ltr">{doc.number}</p>
-            ) : (
-              <p className="text-muted-foreground italic mt-1">مسودة غير منشورة</p>
-            )}
+            <h1 className="text-2xl font-bold">فاتورة ضريبية</h1>
+            <p className="font-mono text-primary">{document.status === "draft" ? "مسودة غير صادرة" : document.number}</p>
           </div>
-          <div className="flex flex-col items-end gap-2">
-            <DocumentStatusBadge status={doc.status} />
-            <DocumentTypeBadge type={doc.type} />
-          </div>
+          <div className="text-end text-sm"><p>{formatDate(document.issue_date)}</p><p className="text-muted-foreground">{document.status === "issued" ? "صادرة" : "مسودة"}</p></div>
+        </header>
+        <Separator className="my-5" />
+
+        <section className="grid gap-5 text-sm sm:grid-cols-2">
+          <Party title="من" name={seller.business_name} vat={seller.vat_number} registration={seller.commercial_registration} address={sellerAddress} />
+          <Party title="إلى" name={customer.name} vat={customer.vat_number} registration={customer.commercial_registration} address={customerAddress} />
+        </section>
+
+        <div className="my-6 overflow-x-auto">
+          <table className="w-full min-w-[620px] text-sm">
+            <thead><tr className="border-b bg-muted/30"><th className="p-2 text-start">البيان</th><th>الكمية</th>{hasUnits ? <th>الوحدة</th> : null}<th>السعر</th><th>الضريبة</th><th className="text-end">الإجمالي</th></tr></thead>
+            <tbody>{document.items?.map((item) => (
+              <tr key={item.id} className="border-b"><td className="p-2">{item.description}</td><td className="text-center">{item.quantity}</td>{hasUnits ? <td className="text-center">{item.unit || "—"}</td> : null}<td className="text-center">{formatCurrency(Number(item.unit_price))}</td><td className="text-center">{formatCurrency(Number(item.line_tax))}</td><td className="text-end">{formatCurrency(Number(item.line_total))}</td></tr>
+            ))}</tbody>
+          </table>
         </div>
 
-        <div className="mb-6 grid grid-cols-2 gap-6 text-sm">
-          <div>
-            <p className="mb-1 text-xs font-semibold uppercase text-muted-foreground">من</p>
-            {org && (
-              <>
-                <p className="font-semibold">{org.business_name}</p>
-                {org.vat_number && <p className="text-muted-foreground" dir="ltr">{org.vat_number}</p>}
-                {org.show_phone_on_documents && org.phone && <p className="text-muted-foreground">{org.phone}</p>}
-                {org.show_email_on_documents && org.email && <p className="text-muted-foreground">{org.email}</p>}
-              </>
-            )}
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-semibold uppercase text-muted-foreground">إلى</p>
-            <p className="font-semibold">{doc.customer_name}</p>
-            {doc.customer_vat_number && <p className="text-muted-foreground" dir="ltr">{doc.customer_vat_number}</p>}
-            {doc.customer_phone && <p className="text-muted-foreground">{doc.customer_phone}</p>}
-            {doc.customer_address && <p className="text-muted-foreground">{doc.customer_address}</p>}
-          </div>
+        <div className="ms-auto max-w-sm space-y-2 text-sm">
+          <Row label="المجموع قبل الضريبة" value={Number(document.subtotal)} />
+          {Number(document.discount_total) > 0 ? <Row label="الخصم" value={-Number(document.discount_total)} /> : null}
+          <Row label="ضريبة القيمة المضافة 15%" value={Number(document.tax_total)} />
+          {Number(document.retention_total) > 0 ? <Row label="حجز ضمان الأعمال" value={-Number(document.retention_total)} /> : null}
+          <Separator /><Row label="الإجمالي" value={Number(document.total)} bold />
         </div>
 
-        <div className="mb-6 flex gap-8 text-sm">
-          <div><span className="text-muted-foreground">التاريخ: </span><span dir="ltr">{formatDate(doc.date)}</span></div>
-          {doc.due_date && <div><span className="text-muted-foreground">الاستحقاق: </span><span dir="ltr">{formatDate(doc.due_date)}</span></div>}
-        </div>
-
-        <Separator className="mb-4" />
-
-        {/* Items */}
-        <table className="w-full text-sm mb-6">
-          <thead className="border-b">
-            <tr className="text-muted-foreground">
-              <th className="pb-2 text-start">الوصف</th>
-              <th className="pb-2 text-center">الكمية</th>
-              <th className="pb-2 text-center">سعر الوحدة</th>
-              <th className="pb-2 text-end">المجموع</th>
-            </tr>
-          </thead>
-          <tbody>
-            {doc.items.map((item) => (
-              <tr key={item.id} className="border-b last:border-0">
-                <td className="py-2 font-medium">{item.description}</td>
-                <td className="py-2 text-center">{item.quantity}</td>
-                <td className="py-2 text-center tabular-nums" dir="ltr">{formatCurrency(item.unit_price)}</td>
-                <td className="py-2 text-end tabular-nums">{formatCurrency(item.subtotal)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {/* Totals */}
-        <div className="flex justify-end">
-          <div className="w-full max-w-xs space-y-1.5 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">المجموع الفرعي</span>
-              <span className="tabular-nums">{formatCurrency(doc.subtotal)}</span>
-            </div>
-            {doc.discount_amount > 0 && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">الخصم</span>
-                <span className="tabular-nums text-destructive">- {formatCurrency(doc.discount_amount)}</span>
-              </div>
-            )}
-            {doc.retention_amount > 0 && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">الاستقطاع</span>
-                <span className="tabular-nums">- {formatCurrency(doc.retention_amount)}</span>
-              </div>
-            )}
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">ضريبة ({doc.vat_rate}%)</span>
-              <span className="tabular-nums">{formatCurrency(doc.vat_amount)}</span>
-            </div>
-            <Separator />
-            <div className="flex justify-between font-bold text-base">
-              <span>الإجمالي</span>
-              <span className="tabular-nums">{formatCurrency(doc.total)}</span>
-            </div>
-          </div>
-        </div>
-
-        {doc.notes && (
-          <>
-            <Separator className="my-4" />
-            <div className="text-sm">
-              <p className="mb-1 font-semibold">ملاحظات</p>
-              <p className="text-muted-foreground whitespace-pre-wrap">{doc.notes}</p>
-            </div>
-          </>
-        )}
-
-        {/* ZATCA QR — only for issued tax invoices */}
-        {doc.status === "issued" && (doc.type === "tax_invoice" || doc.type === "simplified_invoice") && org && (
-          <div className="mt-6 flex justify-end border-t pt-4">
-            <ZatcaQrCode
-              sellerName={org.business_name}
-              vatNumber={org.vat_number}
-              invoiceDateTime={doc.issued_at ?? doc.updated_at}
-              totalWithVat={doc.total}
-              vatAmount={doc.vat_amount}
-              size={110}
-            />
-          </div>
-        )}
-      </div>
+        {document.reference_data.payment_method ? <Info label="طريقة السداد" value={document.reference_data.payment_method} /> : null}
+        {document.show_bank_details && seller.iban ? <Info label="الحساب البنكي" value={[seller.bank_name, seller.bank_account_name, seller.iban].filter(Boolean).join(" · ")} ltr /> : null}
+        {document.notes ? <div className="mt-6 border-t pt-4"><p className="font-medium">ملاحظات</p><p className="whitespace-pre-wrap text-sm text-muted-foreground">{document.notes}</p></div> : null}
+      </article>
     </div>
   )
+}
+
+function Party({ title, name, vat, registration, address }: { title:string; name?:string; vat?:string; registration?:string; address:string }) {
+  return <div><p className="text-xs text-muted-foreground">{title}</p><p className="font-semibold">{name || "—"}</p>{vat ? <p>الرقم الضريبي: <span dir="ltr">{vat}</span></p> : null}{registration ? <p>السجل التجاري: <span dir="ltr">{registration}</span></p> : null}{address ? <p>{address}</p> : null}</div>
+}
+
+function Info({ label, value, ltr = false }: { label:string; value:string; ltr?:boolean }) {
+  return <div className="mt-6 border-t pt-4 text-sm"><p className="font-medium">{label}</p><p className="text-muted-foreground" dir={ltr ? "ltr" : undefined}>{value}</p></div>
+}
+
+function Row({ label, value, bold = false }: { label:string; value:number; bold?:boolean }) {
+  return <div className={`flex justify-between ${bold ? "text-base font-bold" : ""}`}><span>{label}</span><span>{formatCurrency(value)}</span></div>
 }

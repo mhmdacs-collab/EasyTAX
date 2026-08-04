@@ -1,5 +1,6 @@
 ﻿import { useState } from "react"
 import { useForm } from "react-hook-form"
+import { useEffect } from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { useNavigate } from "@tanstack/react-router"
@@ -16,10 +17,10 @@ import { Separator } from "@/shared/components/ui/separator"
 import { CustomerSelector } from "./CustomerSelector"
 import { ItemsTable } from "./ItemsTable"
 import { TotalsSection } from "./TotalsSection"
-import { calcItemSubtotal, calcDocumentTotals, DOCUMENT_TYPE_LABELS } from "../lib/calculations"
-import { nextDocumentNumber } from "../lib/numbering"
+import { DOCUMENT_TYPE_LABELS } from "../lib/calculations"
 import { generateId } from "@/shared/utils"
 import { toast } from "@/shared/hooks/useToast"
+import { createDocumentDraft, fetchSettings, issueDocumentDraft, updateDocumentDraft, type DocumentDraftInput } from "@/lib/platform/api"
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ const itemSchema = z.object({
   quantity: z.number().positive().default(1),
   unit_price: z.number().min(0).default(0),
   discount_percent: z.number().min(0).max(100).default(0),
+  retention_percent: z.number().min(0).max(100).default(0),
   subtotal: z.number().default(0),
 })
 
@@ -40,7 +42,7 @@ const docSchema = z.object({
   reference_number: z.string().optional(),
   purchase_order: z.string().optional(),
   customer_name: z.string().min(1, "اسم العميل مطلوب"),
-  customer_id: z.string().optional(),
+  customer_id: z.string().min(1, "اختر عميلاً محفوظًا"),
   customer_vat_number: z.string().optional(),
   customer_phone: z.string().optional(),
   customer_email: z.string().optional(),
@@ -87,7 +89,7 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
           customer_phone: draft.customer_phone ?? "",
           customer_email: draft.customer_email ?? "",
           customer_address: draft.customer_address ?? "",
-          items: draft.items.map((i) => ({ ...i, subtotal: i.subtotal })),
+          items: draft.items.map((i) => ({ ...i, retention_percent:i.retention_percent??0, subtotal: i.subtotal })),
           vat_rate: draft.vat_rate,
           vat_inclusive: draft.vat_inclusive,
           discount_amount: draft.discount_amount,
@@ -107,7 +109,7 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
           customer_phone: "",
           customer_email: "",
           customer_address: "",
-          items: [{ id: generateId(), description: "", unit: "", quantity: 1, unit_price: 0, discount_percent: 0, subtotal: 0 }],
+          items: [{ id: generateId(), description: "", unit: "", quantity: 1, unit_price: 0, discount_percent: 0, retention_percent:0, subtotal: 0 }],
           vat_rate: 15,
           vat_inclusive: false,
           discount_amount: 0,
@@ -119,81 +121,46 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
 
   const { register, watch, setValue } = form
   const docType = watch("type")
+  const [paymentMethods,setPaymentMethods]=useState<string[]>([])
+  useEffect(()=>{void fetchSettings().then((settings)=>{setPaymentMethods(settings.payment_methods.filter((method)=>method.is_active).map((method)=>method.name))})},[])
 
-  const buildDocument = (data: DocumentFormData, status: "draft" | "issued", number: string, orgId: string): Document => {
-    const items = data.items.map((item) => ({
-      ...item,
-      subtotal: calcItemSubtotal(item.unit_price, item.quantity, item.discount_percent),
-    }))
-    const totals = calcDocumentTotals(
-      items,
-      data.vat_rate,
-      data.vat_inclusive,
-      data.discount_amount,
-      data.retention_amount
-    )
-    const now = new Date().toISOString()
-    return {
-      id: draft?.id ?? generateId(),
-      organization_id: orgId,
-      type: data.type,
-      status,
-      number,
-      date: data.date,
-      due_date: data.due_date || undefined,
-      customer_id: data.customer_id || undefined,
-      customer_name: data.customer_name,
-      customer_vat_number: data.customer_vat_number || undefined,
-      customer_phone: data.customer_phone || undefined,
-      customer_email: data.customer_email || undefined,
-      customer_address: data.customer_address || undefined,
-      operation_type: "service",
-      purchase_order: data.purchase_order || undefined,
-      items,
-      subtotal: totals.subtotal,
-      discount_amount: totals.discount_amount,
-      retention_amount: totals.retention_amount,
-      vat_amount: totals.vat_amount,
-      total: totals.total,
-      vat_rate: data.vat_rate,
-      vat_inclusive: data.vat_inclusive,
-      notes: data.notes || undefined,
-      terms_and_conditions: data.terms_and_conditions || undefined,
-      payment_method: data.payment_method || undefined,
-      issued_at: status === "issued" ? now : undefined,
-      created_at: draft?.created_at ?? now,
-      updated_at: now,
-      sync_status: "pending",
-      version: (draft?.version ?? 0) + 1,
-    }
-  }
+  const toCentralDraft = (data: DocumentFormData): DocumentDraftInput => ({
+    customer_id: data.customer_id,
+    issue_date: data.date,
+    due_date: data.due_date || undefined,
+    prices_include_tax: data.vat_inclusive,
+    retention_basis: data.items.some((item)=>item.retention_percent>0) ? "before_tax" : undefined,
+    discount_amount: data.discount_amount,
+    notes: data.notes || undefined,
+    show_bank_details: Boolean(data.payment_method),
+    show_stamp: false,
+    show_signature: false,
+    reference_data: { purchase_order: data.purchase_order, reference_number: data.reference_number, payment_method: data.payment_method },
+    items: data.items.map((item) => ({ description:item.description,unit:item.unit,quantity:item.quantity,unit_price:item.unit_price,discount_percent:item.discount_percent,retention_percent:item.retention_percent })),
+  })
 
   const saveDraft = form.handleSubmit(async (data) => {
-    if (!org) return
     setIsSaving(true)
     try {
-      const number = draft?.number ?? "DRAFT"
-      const doc = buildDocument(data, "draft", number, org.id)
-      if (draft) await db.documents.put(doc)
-      else await db.documents.add(doc)
+      if (draft) await updateDocumentDraft(draft.id, toCentralDraft(data))
+      else await createDocumentDraft(toCentralDraft(data))
       await navigate({ to: "/documents" })
       toast({ title: "تم الحفظ", description: "تم حفظ المسودة بنجاح", variant: "success" })
+    } catch (error) {
+      toast({ title: "تعذر حفظ المسودة", description: error instanceof Error ? error.message : "حاول مرة أخرى", variant: "error" })
     } finally {
       setIsSaving(false)
     }
   })
 
   const issueDocument = form.handleSubmit(async (data) => {
-    if (!org) return
     setIsIssuing(true)
     try {
-      const number = draft?.status === "draft" && draft.number !== "DRAFT"
-        ? draft.number
-        : await nextDocumentNumber(org.id, data.type)
-      const doc = buildDocument(data, "issued", number, org.id)
-      if (draft) await db.documents.put(doc)
-      else await db.documents.add(doc)
-      await navigate({ to: "/documents/$id", params: { id: doc.id } })
+      const saved = draft ? await updateDocumentDraft(draft.id, toCentralDraft(data)) : await createDocumentDraft(toCentralDraft(data))
+      await issueDocumentDraft(saved.document_id)
+      await navigate({ to: "/documents/$id", params: { id: saved.document_id } })
+    } catch (error) {
+      toast({ title: "تعذر إصدار الفاتورة", description: error instanceof Error ? error.message : "حاول مرة أخرى", variant: "error" })
     } finally {
       setIsIssuing(false)
     }
@@ -208,9 +175,7 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {(Object.entries(DOCUMENT_TYPE_LABELS) as [DocumentType, string][]).map(([val, label]) => (
-              <SelectItem key={val} value={val}>{label}</SelectItem>
-            ))}
+            <SelectItem value="tax_invoice">{DOCUMENT_TYPE_LABELS.tax_invoice}</SelectItem>
           </SelectContent>
         </Select>
 
@@ -265,6 +230,7 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">إلى</p>
           <CustomerSelector
             values={{
+              customer_id: watch("customer_id"),
               customer_name: watch("customer_name"),
               customer_vat_number: watch("customer_vat_number") ?? "",
               customer_phone: watch("customer_phone") ?? "",
@@ -324,6 +290,11 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
           <div className="space-y-1.5">
             <Label>الشروط والأحكام</Label>
             <Textarea placeholder="شروط الدفع والتسليم..." rows={3} {...register("terms_and_conditions")} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>طريقة السداد</Label>
+            <Select value={watch("payment_method")||"none"} onValueChange={(value)=>{setValue("payment_method",value==="none"?"":value)}}><SelectTrigger><SelectValue placeholder="اختر طريقة السداد"/></SelectTrigger><SelectContent><SelectItem value="none">غير محددة</SelectItem>{paymentMethods.map((method)=><SelectItem key={method} value={method}>{method}</SelectItem>)}</SelectContent></Select>
+            <p className="text-xs text-muted-foreground">معلومة تظهر في الفاتورة ولا تنشئ قيدًا محاسبيًا.</p>
           </div>
         </div>
         <TotalsSection form={form} />
