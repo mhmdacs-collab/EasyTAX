@@ -89,7 +89,6 @@ export function SubscriptionActivationForm() {
         cache: "no-store",
         headers: {
           "Content-Type": "application/json",
-          "Cache-Control": "no-store",
         },
       })
       const json = (await res.json()) as
@@ -140,7 +139,6 @@ export function SubscriptionActivationForm() {
         cache: "no-store",
         headers: {
           "Content-Type": "application/json",
-          "Cache-Control": "no-store",
         },
       })
       const json = (await res.json()) as { success: true; email: string } | { error: string }

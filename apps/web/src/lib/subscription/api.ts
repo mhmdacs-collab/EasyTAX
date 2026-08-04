@@ -24,9 +24,6 @@ export async function fetchSubscriptionStatus(): Promise<SubscriptionStatus> {
   const response = await fetch(`${API_URL}/api/v1/subscription/status`, {
     credentials: "include",
     cache: "no-store",
-    headers: {
-      "Cache-Control": "no-store",
-    },
   })
 
   if (!response.ok) {
@@ -40,9 +37,6 @@ export async function fetchCurrentSubscription(): Promise<CurrentSubscription> {
   const response = await fetch(`${API_URL}/api/v1/subscription/me`, {
     credentials: "include",
     cache: "no-store",
-    headers: {
-      "Cache-Control": "no-store",
-    },
   })
 
   if (!response.ok) {
