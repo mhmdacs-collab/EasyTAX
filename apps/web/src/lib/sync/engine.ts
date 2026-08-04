@@ -60,20 +60,25 @@ export class SyncEngine {
       if (!res.ok) return
 
       const { synced } = (await res.json()) as {
-        synced: { documents: number; customers: number }
+        synced: { document_ids: string[]; customer_ids: string[] }
       }
 
-      // Mark synced in Dexie
+      // Mark only the exact rows acknowledged by the server. New edits that
+      // appeared while the request was in flight remain pending.
       await db.transaction("rw", [db.documents, db.customers], async () => {
-        if (synced.documents > 0) {
-          await db.documents
-            .where("sync_status").equals("pending")
-            .modify({ sync_status: "synced" })
+        for (const id of synced.document_ids) {
+          const sent = pendingDocs.find((item) => item.id === id)
+          const current = await db.documents.get(id)
+          if (sent && current?.version === sent.version) {
+            await db.documents.update(id, { sync_status: "synced" })
+          }
         }
-        if (synced.customers > 0) {
-          await db.customers
-            .where("sync_status").equals("pending")
-            .modify({ sync_status: "synced" })
+        for (const id of synced.customer_ids) {
+          const sent = pendingCustomers.find((item) => item.id === id)
+          const current = await db.customers.get(id)
+          if (sent && current?.version === sent.version) {
+            await db.customers.update(id, { sync_status: "synced" })
+          }
         }
       })
     } catch {
