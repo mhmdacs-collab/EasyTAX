@@ -3,7 +3,15 @@ import { useNavigate } from "@tanstack/react-router"
 
 const WRONG_CREDENTIALS_MESSAGE = "الرقم الضريبي أو كلمة المرور غير صحيحة."
 const SERVER_UNAVAILABLE_MESSAGE = "الخادم غير متاح حالياً. حاول مرة أخرى لاحقًا."
+const RATE_LIMIT_MESSAGE = "محاولات كثيرة. حاول مرة أخرى بعد قليل."
 const UNEXPECTED_LOGIN_ERROR_MESSAGE = "حدث خطأ غير متوقع أثناء تسجيل الدخول. حاول مرة أخرى."
+
+const KNOWN_ARABIC_MESSAGES = new Set([
+  WRONG_CREDENTIALS_MESSAGE,
+  SERVER_UNAVAILABLE_MESSAGE,
+  RATE_LIMIT_MESSAGE,
+  UNEXPECTED_LOGIN_ERROR_MESSAGE,
+])
 
 const isNetworkMessage = (message: string) =>
   /Failed to fetch|fetch failed|NetworkError|Load failed|ERR_NETWORK|ECONNREFUSED/i.test(message)
@@ -30,10 +38,13 @@ const readCode = (error: unknown): string | undefined => {
 
 export function mapLoginError(error: unknown): string {
   const message = readMessage(error)
+
+  // Short-circuit: already a known Arabic message (prevents double-mapping in try/catch)
+  if (KNOWN_ARABIC_MESSAGES.has(message)) return message
+
   const status = readStatus(error)
   const code = readCode(error)
 
-  if (message === WRONG_CREDENTIALS_MESSAGE) return message
   if (
     code === "INVALID_EMAIL_OR_PASSWORD" ||
     status === 401 ||
@@ -42,7 +53,7 @@ export function mapLoginError(error: unknown): string {
     return WRONG_CREDENTIALS_MESSAGE
   }
   if (status === 429 || /Too many requests/i.test(message)) {
-    return "محاولات كثيرة. حاول مرة أخرى بعد قليل."
+    return RATE_LIMIT_MESSAGE
   }
   if (isNetworkMessage(message)) {
     return SERVER_UNAVAILABLE_MESSAGE
