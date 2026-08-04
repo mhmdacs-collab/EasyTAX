@@ -41,6 +41,9 @@ export function mapLoginError(error: unknown): string {
   ) {
     return WRONG_CREDENTIALS_MESSAGE
   }
+  if (status === 429 || /Too many requests/i.test(message)) {
+    return "محاولات كثيرة. حاول مرة أخرى بعد قليل."
+  }
   if (isNetworkMessage(message)) {
     return SERVER_UNAVAILABLE_MESSAGE
   }
