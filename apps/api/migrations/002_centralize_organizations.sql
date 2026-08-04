@@ -3,6 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS organizations (
   id TEXT PRIMARY KEY,
+  user_id TEXT,
   business_name TEXT NOT NULL,
   vat_number TEXT NOT NULL,
   phone TEXT,
@@ -13,6 +14,26 @@ CREATE TABLE IF NOT EXISTS organizations (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   deleted_at TIMESTAMPTZ
 );
+
+-- Upgrade the existing phase-0 organizations table in place. Membership is
+-- moved to organization_users, so legacy user_id must no longer be required.
+ALTER TABLE organizations
+  ALTER COLUMN user_id DROP NOT NULL,
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'organizations_status_check'
+      AND conrelid = 'organizations'::regclass
+  ) THEN
+    ALTER TABLE organizations
+      ADD CONSTRAINT organizations_status_check
+      CHECK (status IN ('active', 'inactive', 'suspended'));
+  END IF;
+END $$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS organizations_vat_unique
   ON organizations (vat_number)
