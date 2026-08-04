@@ -1,18 +1,19 @@
-﻿import { Hono } from "hono"
+import { Hono } from "hono"
 import { z } from "zod"
 import { zValidator } from "@hono/zod-validator"
-import { sql } from "../lib/db"
+import { auth } from "../lib/auth"
+import { sql, withTransaction } from "../lib/db"
 
 const syncRouter = new Hono()
 
-// ── Schemas ───────────────────────────────────────────────────────────────────
 const documentItemSchema = z.object({
   id: z.string(),
   description: z.string(),
   unit: z.string().optional(),
-  quantity: z.number().optional(),
-  unit_price: z.number(),
+  quantity: z.number().positive().optional(),
+  unit_price: z.number().nonnegative(),
   discount_percent: z.number().optional(),
+  retention_percent: z.number().optional(),
   subtotal: z.number(),
 })
 
@@ -47,7 +48,7 @@ const documentSchema = z.object({
   created_at: z.string(),
   updated_at: z.string(),
   deleted_at: z.string().nullish(),
-  version: z.number(),
+  version: z.number().int().positive(),
 })
 
 const customerSchema = z.object({
@@ -64,159 +65,165 @@ const customerSchema = z.object({
   created_at: z.string(),
   updated_at: z.string(),
   deleted_at: z.string().nullish(),
-  version: z.number(),
+  version: z.number().int().positive(),
 })
 
 const syncPayload = z.object({
   organization_id: z.string(),
-  documents: z.array(documentSchema).optional().default([]),
-  customers: z.array(customerSchema).optional().default([]),
+  documents: z.array(documentSchema).default([]),
+  customers: z.array(customerSchema).default([]),
 })
 
-// ── POST /api/v1/sync ────────────────────────────────────────────────────────
+const documentType = (type: z.infer<typeof documentSchema>["type"]): "invoice" | "quotation" | "receipt" => {
+  if (type === "quotation" || type === "proforma") return "quotation"
+  if (type === "receipt_voucher") return "receipt"
+  return "invoice"
+}
+
+const documentStatus = (status: z.infer<typeof documentSchema>["status"]): "draft" | "issued" | "cancelled" => {
+  if (status === "cancelled" || status === "archived") return "cancelled"
+  return status
+}
+
 syncRouter.post("/", zValidator("json", syncPayload), async (c) => {
-  const user = c.get("user" as never) as { id: string } | undefined
-  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const session = await (auth.api as any).getSession({ headers: c.req.raw.headers })
+  if (!session?.user?.id) return c.json({ error: "غير مصرح" }, 401)
 
-  const { organization_id, documents, customers } = c.req.valid("json")
-  const synced = { documents: 0, customers: 0, errors: [] as string[] }
-
-  // Ensure documents table exists (idempotent)
-  await sql`
-    CREATE TABLE IF NOT EXISTS documents (
-      id TEXT PRIMARY KEY,
-      organization_id TEXT NOT NULL,
-      type TEXT NOT NULL,
-      status TEXT NOT NULL,
-      number TEXT NOT NULL,
-      date TEXT NOT NULL,
-      due_date TEXT,
-      customer_name TEXT NOT NULL,
-      customer_id TEXT,
-      customer_vat_number TEXT,
-      customer_phone TEXT,
-      customer_email TEXT,
-      customer_address TEXT,
-      operation_type TEXT DEFAULT 'service',
-      purchase_order TEXT,
-      items JSONB NOT NULL DEFAULT '[]',
-      subtotal NUMERIC NOT NULL DEFAULT 0,
-      discount_amount NUMERIC NOT NULL DEFAULT 0,
-      retention_amount NUMERIC NOT NULL DEFAULT 0,
-      vat_amount NUMERIC NOT NULL DEFAULT 0,
-      total NUMERIC NOT NULL DEFAULT 0,
-      vat_rate NUMERIC NOT NULL DEFAULT 15,
-      vat_inclusive BOOLEAN NOT NULL DEFAULT false,
-      payment_method TEXT,
-      notes TEXT,
-      terms_and_conditions TEXT,
-      issued_at TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      deleted_at TEXT,
-      version INTEGER NOT NULL DEFAULT 1
-    )
+  const body = c.req.valid("json")
+  const organizations = await sql`
+    SELECT id FROM organizations
+    WHERE id = ${body.organization_id}
+      AND user_id = ${session.user.id as string}
+      AND deleted_at IS NULL
+    LIMIT 1
   `
+  if (organizations.length === 0) return c.json({ error: "المنشأة غير مرتبطة بهذا الحساب" }, 403)
 
-  await sql`
-    CREATE TABLE IF NOT EXISTS customers (
-      id TEXT PRIMARY KEY,
-      organization_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      vat_number TEXT,
-      commercial_registration TEXT,
-      phone TEXT,
-      email TEXT,
-      address TEXT,
-      notes TEXT,
-      is_active BOOLEAN NOT NULL DEFAULT true,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      deleted_at TEXT,
-      version INTEGER NOT NULL DEFAULT 1
-    )
-  `
-
-  for (const doc of documents) {
-    try {
-      await sql`
-        INSERT INTO documents (
-          id, organization_id, type, status, number, date, due_date,
-          customer_name, customer_id, customer_vat_number, customer_phone,
-          customer_email, customer_address, operation_type, purchase_order,
-          items, subtotal, discount_amount, retention_amount, vat_amount, total,
-          vat_rate, vat_inclusive, payment_method, notes, terms_and_conditions,
-          issued_at, created_at, updated_at, deleted_at, version
-        ) VALUES (
-          ${doc.id}, ${organization_id}, ${doc.type}, ${doc.status}, ${doc.number},
-          ${doc.date}, ${doc.due_date ?? null}, ${doc.customer_name},
-          ${doc.customer_id ?? null}, ${doc.customer_vat_number ?? null},
-          ${doc.customer_phone ?? null}, ${doc.customer_email ?? null},
-          ${doc.customer_address ?? null}, ${doc.operation_type},
-          ${doc.purchase_order ?? null},
-          ${JSON.stringify(doc.items)}::jsonb,
-          ${doc.subtotal}, ${doc.discount_amount}, ${doc.retention_amount},
-          ${doc.vat_amount}, ${doc.total}, ${doc.vat_rate}, ${doc.vat_inclusive},
-          ${doc.payment_method ?? null}, ${doc.notes ?? null},
-          ${doc.terms_and_conditions ?? null}, ${doc.issued_at ?? null},
-          ${doc.created_at}, ${doc.updated_at}, ${doc.deleted_at ?? null}, ${doc.version}
-        )
-        ON CONFLICT (id) DO UPDATE SET
-          status            = EXCLUDED.status,
-          number            = EXCLUDED.number,
-          items             = EXCLUDED.items,
-          subtotal          = EXCLUDED.subtotal,
-          discount_amount   = EXCLUDED.discount_amount,
-          retention_amount  = EXCLUDED.retention_amount,
-          vat_amount        = EXCLUDED.vat_amount,
-          total             = EXCLUDED.total,
-          notes             = EXCLUDED.notes,
-          issued_at         = EXCLUDED.issued_at,
-          updated_at        = EXCLUDED.updated_at,
-          deleted_at        = EXCLUDED.deleted_at,
-          version           = EXCLUDED.version
-        WHERE documents.version < EXCLUDED.version
-      `
-      synced.documents++
-    } catch (err) {
-      synced.errors.push(`doc:${doc.id} — ${String(err)}`)
-    }
+  if (
+    body.documents.some((item) => item.organization_id !== body.organization_id) ||
+    body.customers.some((item) => item.organization_id !== body.organization_id)
+  ) {
+    return c.json({ error: "معرف المنشأة غير متطابق", code: "TENANT_MISMATCH" }, 422)
   }
 
-  for (const cust of customers) {
+  const synced = {
+    document_ids: [] as string[],
+    customer_ids: [] as string[],
+    errors: [] as Array<{ entity: "document" | "customer"; id: string; message: string }>,
+  }
+
+  for (const customer of body.customers) {
     try {
-      await sql`
+      const rows = await sql`
         INSERT INTO customers (
           id, organization_id, name, vat_number, commercial_registration,
           phone, email, address, notes, is_active,
-          created_at, updated_at, deleted_at, version
+          created_at, updated_at, deleted_at, sync_version
         ) VALUES (
-          ${cust.id}, ${organization_id}, ${cust.name},
-          ${cust.vat_number ?? null}, ${cust.commercial_registration ?? null},
-          ${cust.phone ?? null}, ${cust.email ?? null},
-          ${cust.address ?? null}, ${cust.notes ?? null}, ${cust.is_active},
-          ${cust.created_at}, ${cust.updated_at},
-          ${cust.deleted_at ?? null}, ${cust.version}
+          ${customer.id}, ${body.organization_id}, ${customer.name},
+          ${customer.vat_number ?? null}, ${customer.commercial_registration ?? null},
+          ${customer.phone ?? null}, ${customer.email ?? null},
+          ${customer.address ?? null}, ${customer.notes ?? null}, ${customer.is_active},
+          ${customer.created_at}, ${customer.updated_at}, ${customer.deleted_at ?? null}, ${customer.version}
         )
         ON CONFLICT (id) DO UPDATE SET
-          name       = EXCLUDED.name,
+          name = EXCLUDED.name,
           vat_number = EXCLUDED.vat_number,
-          phone      = EXCLUDED.phone,
-          email      = EXCLUDED.email,
-          address    = EXCLUDED.address,
-          is_active  = EXCLUDED.is_active,
+          commercial_registration = EXCLUDED.commercial_registration,
+          phone = EXCLUDED.phone,
+          email = EXCLUDED.email,
+          address = EXCLUDED.address,
+          notes = EXCLUDED.notes,
+          is_active = EXCLUDED.is_active,
           updated_at = EXCLUDED.updated_at,
           deleted_at = EXCLUDED.deleted_at,
-          version    = EXCLUDED.version
-        WHERE customers.version < EXCLUDED.version
+          sync_version = EXCLUDED.sync_version
+        WHERE customers.organization_id = EXCLUDED.organization_id
+          AND customers.sync_version <= EXCLUDED.sync_version
+        RETURNING id
       `
-      synced.customers++
-    } catch (err) {
-      synced.errors.push(`cust:${cust.id} — ${String(err)}`)
+      if (rows.length === 0) throw new Error("تعارض ملكية السجل أو وجود نسخة أحدث")
+      synced.customer_ids.push(customer.id)
+    } catch (error) {
+      synced.errors.push({ entity: "customer", id: customer.id, message: error instanceof Error ? error.message : String(error) })
     }
   }
 
-  return c.json({ ok: true, synced })
+  for (const document of body.documents) {
+    try {
+      await withTransaction(async (client) => {
+        const result = await client.query(
+          `INSERT INTO documents (
+             id, organization_id, customer_id, type, number, issue_date, due_date,
+             status, prices_include_tax, subtotal, tax_total, retention_total,
+             total, collected_total, due_total, notes,
+             created_at, updated_at, deleted_at, sync_version
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, $7,
+             $8, $9, $10, $11, $12,
+             $13, 0, $13, $14,
+             $15, $16, $17, $18
+           )
+           ON CONFLICT (id) DO UPDATE SET
+             customer_id = EXCLUDED.customer_id,
+             type = EXCLUDED.type,
+             number = EXCLUDED.number,
+             issue_date = EXCLUDED.issue_date,
+             due_date = EXCLUDED.due_date,
+             status = EXCLUDED.status,
+             prices_include_tax = EXCLUDED.prices_include_tax,
+             subtotal = EXCLUDED.subtotal,
+             tax_total = EXCLUDED.tax_total,
+             retention_total = EXCLUDED.retention_total,
+             total = EXCLUDED.total,
+             due_total = EXCLUDED.due_total,
+             notes = EXCLUDED.notes,
+             updated_at = EXCLUDED.updated_at,
+             deleted_at = EXCLUDED.deleted_at,
+             sync_version = EXCLUDED.sync_version
+           WHERE documents.organization_id = EXCLUDED.organization_id
+             AND documents.sync_version <= EXCLUDED.sync_version
+           RETURNING id`,
+          [
+            document.id, body.organization_id, document.customer_id ?? null,
+            documentType(document.type), document.number, document.date, document.due_date ?? null,
+            documentStatus(document.status), document.vat_inclusive, document.subtotal,
+            document.vat_amount, document.retention_amount, document.total, document.notes ?? null,
+            document.created_at, document.updated_at, document.deleted_at ?? null, document.version,
+          ],
+        )
+        if (result.rowCount === 0) throw new Error("تعارض ملكية السجل أو وجود نسخة أحدث")
+
+        await client.query("DELETE FROM document_items WHERE document_id = $1", [document.id])
+        for (const [index, item] of document.items.entries()) {
+          const quantity = item.quantity ?? 1
+          const share = document.subtotal > 0 ? item.subtotal / document.subtotal : 0
+          const tax = document.vat_amount * share
+          const retention = document.retention_amount * share
+          const documentDiscount = document.discount_amount * share
+          const itemDiscount = quantity * item.unit_price * ((item.discount_percent ?? 0) / 100)
+          await client.query(
+            `INSERT INTO document_items (
+               id, document_id, description, quantity, unit_price, discount,
+               tax_rate, retention_rate, line_subtotal, line_tax,
+               line_retention, line_total, sort_order
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+            [
+              item.id, document.id, item.description, quantity, item.unit_price,
+              itemDiscount, document.vat_rate, item.retention_percent ?? 0,
+              item.subtotal, tax, retention, item.subtotal - documentDiscount + tax - retention, index,
+            ],
+          )
+        }
+      })
+      synced.document_ids.push(document.id)
+    } catch (error) {
+      synced.errors.push({ entity: "document", id: document.id, message: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
+  return c.json({ ok: synced.errors.length === 0, synced })
 })
 
 export { syncRouter }

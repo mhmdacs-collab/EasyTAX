@@ -53,6 +53,8 @@ export type CustomerBootstrap = {
     email: string
     name: string
     role: string
+    must_change_password: boolean
+    password_changed: boolean
   }
   organization: {
     id: string
@@ -146,7 +148,6 @@ export type CompleteOnboardingInput = {
     is_active: boolean
   }>
   quotation_terms: string[]
-  password_changed: true
 }
 
 export async function completeCustomerOnboarding(input: CompleteOnboardingInput): Promise<void> {

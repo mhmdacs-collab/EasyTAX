@@ -47,6 +47,13 @@ bootstrapRouter.get("/me", async (c) => {
       o.prices_include_tax,
       o.retention_enabled,
       o.onboarding_completed_at,
+      u.must_change_password,
+      EXISTS (
+        SELECT 1 FROM account a
+        WHERE a.user_id = u.id
+          AND a.provider_id = 'credential'
+          AND a.updated_at > a.created_at
+      ) AS password_changed,
       o.status AS organization_status,
       o.id AS subscription_id,
       o.plan,
@@ -61,6 +68,7 @@ bootstrapRouter.get("/me", async (c) => {
         ELSE 'inactive'
       END AS effective_status
     FROM organizations o
+    JOIN "user" u ON u.id = o.user_id
     WHERE o.user_id = ${session.user.id as string}
       AND o.deleted_at IS NULL
     LIMIT 1
@@ -103,6 +111,8 @@ bootstrapRouter.get("/me", async (c) => {
     prices_include_tax: boolean | null
     retention_enabled: boolean
     onboarding_completed_at: string | null
+    must_change_password: boolean
+    password_changed: boolean
     organization_status: string
     subscription_id: string | null
     plan: string | null
@@ -118,6 +128,8 @@ bootstrapRouter.get("/me", async (c) => {
       email: session.user.email,
       name: session.user.name,
       role: "owner",
+      must_change_password: row.must_change_password,
+      password_changed: !row.must_change_password || row.password_changed,
     },
     organization: {
       id: row.organization_id,
@@ -199,7 +211,6 @@ const completeOnboardingSchema = z.object({
     is_active: z.boolean(),
   })).min(1),
   quotation_terms: z.array(z.string().trim().min(1)).default([]),
-  password_changed: z.literal(true),
 }).superRefine((value, ctx) => {
   if (!value.bank_enabled) return
   for (const field of ["bank_name", "bank_account_name", "iban"] as const) {
@@ -214,6 +225,24 @@ bootstrapRouter.post("/onboarding-complete", zValidator("json", completeOnboardi
 
   const body = c.req.valid("json")
   const result = await withTransaction(async (client) => {
+    const passwordState = await client.query(
+      `SELECT u.must_change_password,
+              EXISTS (
+                SELECT 1 FROM account a
+                WHERE a.user_id = u.id
+                  AND a.provider_id = 'credential'
+                  AND a.updated_at > a.created_at
+              ) AS password_changed
+       FROM "user" u WHERE u.id = $1 FOR UPDATE`,
+      [session.user.id as string],
+    )
+    const state = passwordState.rows[0] as
+      | { must_change_password: boolean; password_changed: boolean }
+      | undefined
+    if (!state || (state.must_change_password && !state.password_changed)) {
+      return { error: "PASSWORD_CHANGE_REQUIRED" as const }
+    }
+
     const updated = await client.query(
       `UPDATE organizations SET
         commercial_registration = $1, phone = $2, email = $3,
@@ -242,7 +271,7 @@ bootstrapRouter.post("/onboarding-complete", zValidator("json", completeOnboardi
         body.prices_include_tax, body.retention_enabled,
         body.show_phone_on_documents, body.show_email_on_documents, session.user.id as string],
     )
-    if (updated.rowCount === 0) return null
+    if (updated.rowCount === 0) return { error: "ORGANIZATION_NOT_FOUND" as const }
     const organizationId = updated.rows[0].id as string
     await client.query("DELETE FROM payment_methods WHERE organization_id = $1", [organizationId])
     for (const method of body.payment_methods) {
@@ -263,11 +292,16 @@ bootstrapRouter.post("/onboarding-complete", zValidator("json", completeOnboardi
       `UPDATE "user" SET must_change_password = FALSE, updated_at = NOW() WHERE id = $1`,
       [session.user.id as string],
     )
-    return updated.rows[0]
+    return { data: updated.rows[0] }
   })
 
-  if (!result) return c.json({ error: "لا توجد منشأة مرتبطة بالحساب." }, 404)
-  return c.json({ success: true, ...result })
+  if ("error" in result) {
+    if (result.error === "PASSWORD_CHANGE_REQUIRED") {
+      return c.json({ error: "يجب تغيير كلمة المرور المؤقتة أولاً.", code: result.error }, 409)
+    }
+    return c.json({ error: "لا توجد منشأة مرتبطة بالحساب.", code: result.error }, 404)
+  }
+  return c.json({ success: true, ...result.data })
 })
 
 export { bootstrapRouter }

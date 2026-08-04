@@ -205,6 +205,13 @@ adminRouter.post("/subscriptions", zValidator("json", createSubscriptionSchema),
          VALUES ($1, 'invoice'), ($1, 'quotation'), ($1, 'receipt')`,
         [organizationId],
       )
+      await client.query(
+        `INSERT INTO subscription_events (
+           organization_id, admin_user_id, action, duration_days,
+           new_expires_at, new_status
+         ) VALUES ($1, $2, 'created', $3, $4, 'active')`,
+        [organizationId, authz.user.id, body.duration_days, result.rows[0].expires_at],
+      )
       return result.rows[0]
     })
 
@@ -298,29 +305,42 @@ adminRouter.post("/subscriptions/:vatNumber/renew", zValidator("json", renewBody
 
   const { duration_days } = c.req.valid("json")
 
-  // Atomic CTE: capture old value at snapshot, compute new value in UPDATE
-  const rows = await sql`
-    WITH before_update AS (
-      SELECT subscription_expires_at AS old_expires_at FROM organizations WHERE vat_number = ${vatNumber}
-    ),
-    after_update AS (
-      UPDATE organizations
-      SET
-        subscription_expires_at = CASE
-          WHEN subscription_expires_at < NOW()
-            THEN NOW() + (${duration_days} * INTERVAL '1 day')
-          ELSE subscription_expires_at + (${duration_days} * INTERVAL '1 day')
-        END,
-        subscription_duration_days = subscription_duration_days + ${duration_days},
-        updated_at = NOW()
-      WHERE vat_number = ${vatNumber}
-      RETURNING
-        subscription_expires_at AS new_expires_at,
-        CEIL(EXTRACT(EPOCH FROM (subscription_expires_at - NOW())) / 86400.0)::int AS remaining_days
+  const rows = await withTransaction(async (client) => {
+    const result = await client.query(
+      `WITH before_update AS (
+         SELECT id, subscription_expires_at AS old_expires_at, status
+         FROM organizations WHERE vat_number = $1 FOR UPDATE
+       ),
+       after_update AS (
+         UPDATE organizations o
+         SET subscription_expires_at = CASE
+               WHEN o.subscription_expires_at < NOW()
+                 THEN NOW() + ($2::integer * INTERVAL '1 day')
+               ELSE o.subscription_expires_at + ($2::integer * INTERVAL '1 day')
+             END,
+             subscription_duration_days = o.subscription_duration_days + $2,
+             updated_at = NOW()
+         FROM before_update b
+         WHERE o.id = b.id
+         RETURNING o.id, o.subscription_expires_at AS new_expires_at,
+           CEIL(EXTRACT(EPOCH FROM (o.subscription_expires_at - NOW())) / 86400.0)::int AS remaining_days
+       )
+       SELECT b.id, b.old_expires_at, b.status, a.new_expires_at, a.remaining_days
+       FROM before_update b JOIN after_update a ON a.id = b.id`,
+      [vatNumber, duration_days],
     )
-    SELECT before_update.old_expires_at, after_update.new_expires_at, after_update.remaining_days
-    FROM before_update CROSS JOIN after_update
-  `
+    if (result.rowCount) {
+      const row = result.rows[0]
+      await client.query(
+        `INSERT INTO subscription_events (
+           organization_id, admin_user_id, action, duration_days,
+           previous_expires_at, new_expires_at, previous_status, new_status
+         ) VALUES ($1, $2, 'renewed', $3, $4, $5, $6, $6)`,
+        [row.id, authz.user.id, duration_days, row.old_expires_at, row.new_expires_at, row.status],
+      )
+    }
+    return result.rows
+  })
 
   if (rows.length === 0) {
     return c.json(fail("لا يوجد اشتراك بهذا الرقم الضريبي.", "NOT_FOUND"), 404)
@@ -360,6 +380,12 @@ adminRouter.post("/subscriptions/:vatNumber/suspend", async (c) => {
       const userId = result.rows[0].user_id as string
       await client.query(`UPDATE "user" SET status = 'suspended', updated_at = NOW() WHERE id = $1`, [userId])
       await client.query(`DELETE FROM session WHERE user_id = $1`, [userId])
+      await client.query(
+        `INSERT INTO subscription_events (
+           organization_id, admin_user_id, action, previous_status, new_status
+         ) VALUES ($1, $2, 'suspended', 'active', 'suspended')`,
+        [result.rows[0].id, authz.user.id],
+      )
     }
     return result.rows
   })
@@ -383,13 +409,26 @@ adminRouter.post("/subscriptions/:vatNumber/reactivate", async (c) => {
   }
 
   const updated = await withTransaction(async (client) => {
+    const before = await client.query(
+      `SELECT id, user_id, status FROM organizations
+       WHERE vat_number = $1 AND status IN ('suspended', 'inactive') FOR UPDATE`,
+      [vatNumber],
+    )
+    if (before.rowCount === 0) return []
+    const previous = before.rows[0] as { id: string; user_id: string; status: string }
     const result = await client.query(
       `UPDATE organizations SET status = 'active', updated_at = NOW()
-       WHERE vat_number = $1 AND status IN ('suspended', 'inactive') RETURNING id, user_id`,
-      [vatNumber],
+       WHERE id = $1 RETURNING id, user_id`,
+      [previous.id],
     )
     if (result.rowCount) {
       await client.query(`UPDATE "user" SET status = 'active', updated_at = NOW() WHERE id = $1`, [result.rows[0].user_id])
+      await client.query(
+        `INSERT INTO subscription_events (
+           organization_id, admin_user_id, action, previous_status, new_status
+         ) VALUES ($1, $2, 'reactivated', $3, 'active')`,
+        [result.rows[0].id, authz.user.id, previous.status],
+      )
     }
     return result.rows
   })

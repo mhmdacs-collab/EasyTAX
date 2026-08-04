@@ -125,6 +125,7 @@ export default function OnboardingPage() {
     void fetchCustomerBootstrap().then((bootstrap) => {
       const organization = bootstrap.organization
       setOriginalPhone(organization.phone ?? "")
+      setPasswordChanged(bootstrap.user.password_changed)
       setData((current) => ({ ...current,
         business_name: organization.business_name, vat_number: organization.vat_number,
         organization_id: organization.id, country: "المملكة العربية السعودية",
@@ -222,7 +223,7 @@ export default function OnboardingPage() {
         stamp_on_receipt: data.stamp_on_receipt, signature_on_invoice: data.signature_on_invoice,
         signature_on_quotation: data.signature_on_quotation, signature_on_receipt: data.signature_on_receipt,
         prices_include_tax: data.prices_include_tax as boolean, retention_enabled: data.retention_enabled,
-        payment_methods: data.payment_methods, quotation_terms: data.quotation_terms, password_changed: true,
+        payment_methods: data.payment_methods, quotation_terms: data.quotation_terms,
       })
       const session = await authClient.getSession()
       const authUserId = session.data?.user.id

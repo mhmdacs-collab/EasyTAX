@@ -6,7 +6,7 @@ DROP TABLE IF EXISTS
   purchase_invoices, expense_categories, document_terms, document_payments,
   document_items, documents, projects, catalog_items, suppliers, customers,
   document_sequences, quotation_terms, payment_methods, activation_tokens,
-  subscriptions, organizations, admin_users, verification, session, account,
+  subscriptions, subscription_events, organizations, admin_users, verification, session, account,
   "user"
 CASCADE;
 
@@ -118,6 +118,19 @@ CREATE TABLE organizations (
   )
 );
 
+CREATE TABLE subscription_events (
+  id BIGSERIAL PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  admin_user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE RESTRICT,
+  action TEXT NOT NULL CHECK (action IN ('created','renewed','suspended','reactivated')),
+  duration_days INTEGER,
+  previous_expires_at TIMESTAMPTZ,
+  new_expires_at TIMESTAMPTZ,
+  previous_status TEXT,
+  new_status TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE payment_methods (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -150,7 +163,8 @@ CREATE TABLE customers (
   name TEXT NOT NULL, vat_number TEXT, commercial_registration TEXT,
   phone TEXT, phone_e164 TEXT, email TEXT, address TEXT, notes TEXT,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), deleted_at TIMESTAMPTZ
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), deleted_at TIMESTAMPTZ,
+  sync_version INTEGER NOT NULL DEFAULT 1 CHECK (sync_version > 0)
 );
 
 CREATE TABLE suppliers (
@@ -193,6 +207,7 @@ CREATE TABLE documents (
   show_stamp BOOLEAN NOT NULL DEFAULT FALSE, show_signature BOOLEAN NOT NULL DEFAULT FALSE,
   notes TEXT, pdf_url TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), deleted_at TIMESTAMPTZ,
+  sync_version INTEGER NOT NULL DEFAULT 1 CHECK (sync_version > 0),
   UNIQUE (organization_id, type, number)
 );
 
@@ -288,6 +303,7 @@ CREATE TABLE sync_log (
 CREATE INDEX account_user_idx ON account(user_id);
 CREATE INDEX session_user_idx ON session(user_id);
 CREATE INDEX organization_status_idx ON organizations(status) WHERE deleted_at IS NULL;
+CREATE INDEX subscription_events_org_idx ON subscription_events(organization_id, created_at DESC);
 CREATE INDEX customer_org_idx ON customers(organization_id) WHERE deleted_at IS NULL;
 CREATE INDEX supplier_org_idx ON suppliers(organization_id) WHERE deleted_at IS NULL;
 CREATE INDEX document_org_date_idx ON documents(organization_id, issue_date DESC) WHERE deleted_at IS NULL;
