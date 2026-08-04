@@ -60,6 +60,8 @@ export type CustomerBootstrap = {
     vat_number: string
     phone: string | null
     email: string | null
+    show_phone_on_documents: boolean
+    show_email_on_documents: boolean
     country: string
     country_code: string
     commercial_registration: string | null
@@ -114,6 +116,8 @@ export type CompleteOnboardingInput = {
   commercial_registration: string
   phone?: string
   email?: string
+  show_phone_on_documents: boolean
+  show_email_on_documents: boolean
   city: string
   district: string
   street: string

@@ -80,7 +80,8 @@ export function DocumentViewPage() {
               <>
                 <p className="font-semibold">{org.business_name}</p>
                 {org.vat_number && <p className="text-muted-foreground" dir="ltr">{org.vat_number}</p>}
-                {org.phone && <p className="text-muted-foreground">{org.phone}</p>}
+                {org.show_phone_on_documents && org.phone && <p className="text-muted-foreground">{org.phone}</p>}
+                {org.show_email_on_documents && org.email && <p className="text-muted-foreground">{org.email}</p>}
               </>
             )}
           </div>

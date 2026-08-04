@@ -20,6 +20,8 @@ bootstrapRouter.get("/me", async (c) => {
       o.vat_number,
       o.phone,
       o.email,
+      o.show_phone_on_documents,
+      o.show_email_on_documents,
       o.country,
       o.country_code,
       o.commercial_registration,
@@ -74,6 +76,8 @@ bootstrapRouter.get("/me", async (c) => {
     vat_number: string
     phone: string | null
     email: string | null
+    show_phone_on_documents: boolean
+    show_email_on_documents: boolean
     country: string
     country_code: string
     commercial_registration: string | null
@@ -121,6 +125,8 @@ bootstrapRouter.get("/me", async (c) => {
       vat_number: row.vat_number,
       phone: row.phone,
       email: row.email,
+      show_phone_on_documents: row.show_phone_on_documents,
+      show_email_on_documents: row.show_email_on_documents,
       country: row.country,
       country_code: row.country_code,
       commercial_registration: row.commercial_registration,
@@ -163,6 +169,8 @@ const completeOnboardingSchema = z.object({
   commercial_registration: z.string().trim().min(1, "هذا الحقل مطلوب"),
   phone: z.string().optional(),
   email: z.string().email().optional().or(z.literal("")),
+  show_phone_on_documents: z.boolean(),
+  show_email_on_documents: z.boolean(),
   city: z.string().trim().min(1, "هذا الحقل مطلوب"),
   district: z.string().trim().min(1, "هذا الحقل مطلوب"),
   street: z.string().trim().min(1, "هذا الحقل مطلوب"),
@@ -218,8 +226,9 @@ bootstrapRouter.post("/onboarding-complete", zValidator("json", completeOnboardi
         signature_on_invoice = $20, signature_on_quotation = $21, signature_on_receipt = $22,
         tax_name = 'ضريبة القيمة المضافة', tax_rate = 15, tax_code = 'S',
         prices_include_tax = $23, retention_enabled = $24,
+        show_phone_on_documents = $25, show_email_on_documents = $26,
         onboarding_completed_at = COALESCE(onboarding_completed_at, NOW()), updated_at = NOW()
-       WHERE user_id = $25 AND deleted_at IS NULL
+       WHERE user_id = $27 AND deleted_at IS NULL
        RETURNING id, onboarding_completed_at`,
       [body.commercial_registration, body.phone || null, body.email || null,
         body.city, body.district, body.street, body.building_number || null,
@@ -230,7 +239,8 @@ bootstrapRouter.post("/onboarding-complete", zValidator("json", completeOnboardi
         Boolean(body.stamp_url && body.stamp_on_invoice), Boolean(body.stamp_url && body.stamp_on_quotation),
         Boolean(body.stamp_url && body.stamp_on_receipt), Boolean(body.signature_url && body.signature_on_invoice),
         Boolean(body.signature_url && body.signature_on_quotation), Boolean(body.signature_url && body.signature_on_receipt),
-        body.prices_include_tax, body.retention_enabled, session.user.id as string],
+        body.prices_include_tax, body.retention_enabled,
+        body.show_phone_on_documents, body.show_email_on_documents, session.user.id as string],
     )
     if (updated.rowCount === 0) return null
     const organizationId = updated.rows[0].id as string
