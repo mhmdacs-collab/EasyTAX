@@ -1,7 +1,7 @@
 import { Hono } from "hono"
 import { z } from "zod"
 import { zValidator } from "@hono/zod-validator"
-import { sql } from "../lib/db"
+import { sql, withTransaction } from "../lib/db"
 import { auth } from "../lib/auth"
 
 type SessionUser = {
@@ -136,6 +136,8 @@ const createSubscriptionSchema = z.object({
   business_name: z.string().min(2, "اسم المنشأة مطلوب"),
   vat_number: z.string().length(15, "الرقم الضريبي يجب أن يكون 15 رقماً").regex(/^\d+$/, "أرقام فقط"),
   phone: z.string().min(9, "رقم الجوال غير صالح"),
+  email: z.string().email("البريد الإلكتروني غير صالح").optional(),
+  password: z.string().min(8, "كلمة المرور يجب أن تكون 8 أحرف على الأقل"),
   plan: z.string().min(1, "الباقة مطلوبة"),
   duration_days: z.union([
     z.literal(30),
@@ -150,35 +152,114 @@ adminRouter.post("/subscriptions", zValidator("json", createSubscriptionSchema),
   if (!authz) return c.json(fail("غير مصرح لك بالوصول.", "FORBIDDEN"), 403)
 
   const body = c.req.valid("json")
-  try {
-    const rows = await sql`
-      INSERT INTO subscriptions (
-        business_name, vat_number, phone, plan, status, starts_at, expires_at, activated_at, user_id
-      ) VALUES (
-        ${body.business_name},
-        ${body.vat_number},
-        ${body.phone},
-        ${body.plan},
-        'active',
-        NOW(),
-        NOW() + (${String(body.duration_days) + " days"})::interval,
-        NULL,
-        NULL
-      )
-      RETURNING
-        id, business_name, vat_number, phone, plan, status, starts_at, expires_at, activated_at, user_id
-    `
+  const loginEmail = `${body.vat_number}@easytax.local`
+  let createdUserId: string | null = null
 
-    return c.json(ok({
-      message: "تم إنشاء الاشتراك بنجاح.",
-      subscription: rows[0],
-    }), 201)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    if (message.includes("subscriptions_vat_unique") || message.includes("duplicate key")) {
+  try {
+    const existing = await sql`
+      SELECT id FROM subscriptions WHERE vat_number = ${body.vat_number} LIMIT 1
+    `
+    if (existing.length > 0) {
       return c.json(fail("الرقم الضريبي مستخدم مسبقاً.", "DUPLICATE_VAT"), 409)
     }
-    return c.json(fail("تعذر إنشاء الاشتراك.", "CREATE_FAILED"), 400)
+
+    // Better Auth owns password hashing and account creation.
+    // If the following database transaction fails, the newly-created auth rows
+    // are removed in the catch block so no half-created customer remains.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const signUpResult = await (auth.api as any).signUpEmail({
+      body: {
+        email: loginEmail,
+        password: body.password,
+        name: body.business_name,
+      },
+    })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    createdUserId = (signUpResult as any).user?.id as string | undefined ?? null
+    if (!createdUserId) {
+      throw new Error("AUTH_USER_NOT_CREATED")
+    }
+
+    const organizationId = crypto.randomUUID()
+    const membershipId = crypto.randomUUID()
+    const userId = createdUserId
+
+    const subscription = await withTransaction(async (client) => {
+      await client.query(
+        `INSERT INTO organizations (
+          id, business_name, vat_number, phone, email, status
+        ) VALUES ($1, $2, $3, $4, $5, 'active')`,
+        [organizationId, body.business_name, body.vat_number, body.phone, body.email ?? null],
+      )
+
+      await client.query(
+        `INSERT INTO organization_users (
+          id, organization_id, user_id, role
+        ) VALUES ($1, $2, $3, 'owner')`,
+        [membershipId, organizationId, userId],
+      )
+
+      const result = await client.query(
+        `INSERT INTO subscriptions (
+          business_name, vat_number, phone, plan, status, starts_at, expires_at,
+          activated_at, user_id, organization_id
+        ) VALUES (
+          $1, $2, $3, $4, 'active', NOW(),
+          NOW() + ($5 * INTERVAL '1 day'), NOW(), $6, $7
+        )
+        RETURNING
+          id, business_name, vat_number, phone, plan, status, starts_at,
+          expires_at, activated_at, user_id, organization_id`,
+        [
+          body.business_name,
+          body.vat_number,
+          body.phone,
+          body.plan,
+          body.duration_days,
+          userId,
+          organizationId,
+        ],
+      )
+
+      return result.rows[0]
+    })
+
+    return c.json(ok({
+      message: "تم إنشاء العميل وحساب الدخول بنجاح.",
+      login: {
+        vat_number: body.vat_number,
+        email: loginEmail,
+      },
+      organization: {
+        id: organizationId,
+        business_name: body.business_name,
+        vat_number: body.vat_number,
+      },
+      subscription,
+    }), 201)
+  } catch (error) {
+    if (createdUserId) {
+      try {
+        await sql`DELETE FROM session WHERE user_id = ${createdUserId}`
+        await sql`DELETE FROM account WHERE user_id = ${createdUserId}`
+        await sql`DELETE FROM "user" WHERE id = ${createdUserId}`
+      } catch (cleanupError) {
+        console.error("Failed to compensate auth user creation", cleanupError)
+      }
+    }
+
+    const message = error instanceof Error ? error.message : String(error)
+    if (
+      message.includes("subscriptions_vat_unique") ||
+      message.includes("organizations_vat_unique") ||
+      message.includes("duplicate key")
+    ) {
+      return c.json(fail("الرقم الضريبي مستخدم مسبقاً.", "DUPLICATE_VAT"), 409)
+    }
+    if (/user already exists|email.*exists|already registered/i.test(message)) {
+      return c.json(fail("يوجد حساب مرتبط بهذا الرقم الضريبي مسبقاً.", "DUPLICATE_USER"), 409)
+    }
+    return c.json(fail("تعذر إنشاء العميل.", "CREATE_FAILED"), 400)
   }
 })
 
