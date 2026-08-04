@@ -60,6 +60,8 @@ export type CustomerBootstrap = {
     vat_number: string
     phone: string | null
     email: string | null
+    country: string
+    country_code: string
     commercial_registration: string | null
     city: string | null
     district: string | null
@@ -67,6 +69,21 @@ export type CustomerBootstrap = {
     building_number: string | null
     postal_code: string | null
     short_address: string | null
+    bank_enabled: boolean
+    bank_name: string | null
+    bank_account_name: string | null
+    iban: string | null
+    logo_url: string | null
+    stamp_url: string | null
+    signature_url: string | null
+    stamp_on_invoice: boolean
+    stamp_on_quotation: boolean
+    stamp_on_receipt: boolean
+    signature_on_invoice: boolean
+    signature_on_quotation: boolean
+    signature_on_receipt: boolean
+    prices_include_tax: boolean | null
+    retention_enabled: boolean
     onboarding_completed_at: string | null
     status: string
   }
@@ -94,15 +111,38 @@ export async function fetchCustomerBootstrap(): Promise<CustomerBootstrap> {
 }
 
 export type CompleteOnboardingInput = {
-  commercial_registration?: string
+  commercial_registration: string
   phone?: string
   email?: string
-  city?: string
-  district?: string
-  street?: string
+  city: string
+  district: string
+  street: string
   building_number?: string
   postal_code?: string
   short_address?: string
+  bank_enabled: boolean
+  bank_name?: string
+  bank_account_name?: string
+  iban?: string
+  logo_url?: string
+  stamp_url?: string
+  signature_url?: string
+  stamp_on_invoice: boolean
+  stamp_on_quotation: boolean
+  stamp_on_receipt: boolean
+  signature_on_invoice: boolean
+  signature_on_quotation: boolean
+  signature_on_receipt: boolean
+  prices_include_tax: boolean
+  retention_enabled: boolean
+  payment_methods: Array<{
+    name: string
+    is_collected: boolean
+    is_default: boolean
+    is_active: boolean
+  }>
+  quotation_terms: string[]
+  password_changed: true
 }
 
 export async function completeCustomerOnboarding(input: CompleteOnboardingInput): Promise<void> {

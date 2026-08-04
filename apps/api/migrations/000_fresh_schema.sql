@@ -91,14 +91,29 @@ CREATE TABLE organizations (
   signature_on_invoice BOOLEAN NOT NULL DEFAULT FALSE,
   signature_on_quotation BOOLEAN NOT NULL DEFAULT FALSE,
   signature_on_receipt BOOLEAN NOT NULL DEFAULT FALSE,
-  tax_name TEXT NOT NULL DEFAULT 'VAT',
-  tax_rate NUMERIC(5,2) NOT NULL DEFAULT 15.00 CHECK (tax_rate >= 0),
-  tax_code TEXT NOT NULL DEFAULT 'S',
+  tax_name TEXT NOT NULL DEFAULT 'ضريبة القيمة المضافة' CHECK (tax_name = 'ضريبة القيمة المضافة'),
+  tax_rate NUMERIC(5,2) NOT NULL DEFAULT 15.00 CHECK (tax_rate = 15.00),
+  tax_code TEXT NOT NULL DEFAULT 'S' CHECK (tax_code = 'S'),
   prices_include_tax BOOLEAN,
   retention_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  deleted_at TIMESTAMPTZ
+  deleted_at TIMESTAMPTZ,
+  CONSTRAINT organizations_completed_profile_check CHECK (
+    onboarding_completed_at IS NULL OR (
+      NULLIF(BTRIM(commercial_registration), '') IS NOT NULL AND
+      NULLIF(BTRIM(city), '') IS NOT NULL AND
+      NULLIF(BTRIM(district), '') IS NOT NULL AND
+      NULLIF(BTRIM(street), '') IS NOT NULL AND
+      country = 'Saudi Arabia' AND country_code = 'SA' AND
+      prices_include_tax IS NOT NULL AND
+      (NOT bank_enabled OR (
+        NULLIF(BTRIM(bank_name), '') IS NOT NULL AND
+        NULLIF(BTRIM(bank_account_name), '') IS NOT NULL AND
+        NULLIF(BTRIM(iban), '') IS NOT NULL
+      ))
+    )
+  )
 );
 
 CREATE TABLE payment_methods (
