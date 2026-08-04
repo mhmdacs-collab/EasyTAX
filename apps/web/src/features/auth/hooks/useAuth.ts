@@ -22,12 +22,20 @@ const readStatus = (error: unknown): number | undefined => {
   return typeof record.status === "number" ? record.status : undefined
 }
 
+const readCode = (error: unknown): string | undefined => {
+  if (!error || typeof error !== "object") return undefined
+  const record = error as Record<string, unknown>
+  return typeof record.code === "string" ? record.code : undefined
+}
+
 export function mapLoginError(error: unknown): string {
   const message = readMessage(error)
   const status = readStatus(error)
+  const code = readCode(error)
 
   if (message === WRONG_CREDENTIALS_MESSAGE) return message
   if (
+    code === "INVALID_EMAIL_OR_PASSWORD" ||
     status === 401 ||
     /Invalid email or password|invalid credentials|user not found/i.test(message)
   ) {
