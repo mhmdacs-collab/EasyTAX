@@ -12,7 +12,7 @@ import { authClient } from "@/lib/auth/client"
 import { completeCustomerOnboarding, fetchCustomerBootstrap } from "@/lib/subscription/api"
 import { bindOrganizationToAuthUser } from "@/lib/session/customerSession"
 
-const STEPS = ["المنشأة", "التواصل والعنوان", "الأمان", "البنك والهوية", "الضريبة والسداد", "المزايا والتأكيد"]
+const STEPS = ["المنشأة والأمان", "العنوان والبنك", "الضريبة والدفع", "التواصل والهوية", "المراجعة والتأكيد"]
 const REQUIRED = "هذا الحقل مطلوب"
 const DEFAULT_TERMS = ["صلاحية عرض السعر 30 يومًا.", "الأسعار لا تشمل أي أعمال إضافية غير مذكورة.", "يبدأ التنفيذ بعد اعتماد العرض."]
 
@@ -69,12 +69,13 @@ const initialData: OnboardingData = {
   quotation_terms: [],
 }
 
-function Field({ label, name, value, error, onChange, type = "text", placeholder, optional = false, disabled = false }: {
+function Field({ label, name, value, error, onChange, type = "text", placeholder, optional = false, disabled = false, description }: {
   label: string; name: string; value: string; error?: string; onChange: (value: string) => void
-  type?: string; placeholder?: string; optional?: boolean; disabled?: boolean
+  type?: string; placeholder?: string; optional?: boolean; disabled?: boolean; description?: string
 }) {
   return <div className="space-y-2">
-    <Label htmlFor={name}>{label}{optional ? " (اختياري)" : " *"}</Label>
+    <Label htmlFor={name}>{label}{optional ? " (اختياري)" : disabled ? "" : " *"}</Label>
+    {description && <p className="text-xs leading-5 text-muted-foreground">{description}</p>}
     <Input id={name} type={type} value={value} disabled={disabled} placeholder={placeholder} dir={type === "text" ? "auto" : "ltr"}
       className={cn(error && "border-destructive focus-visible:ring-destructive")}
       onChange={(event) => { onChange(event.target.value); }} />
@@ -147,25 +148,25 @@ export default function OnboardingPage() {
 
   const validate = () => {
     const next: Record<string, string> = {}
-    if (step === 0 && !data.commercial_registration.trim()) next.commercial_registration = REQUIRED
-    if (step === 1) {
-      if (!data.city.trim()) next.city = REQUIRED
-      if (!data.district.trim()) next.district = REQUIRED
-      if (!data.street.trim()) next.street = REQUIRED
-      if (data.email && !/^\S+@\S+\.\S+$/.test(data.email)) next.email = "البريد الإلكتروني غير صالح"
-    }
-    if (step === 2) {
+    if (step === 0) {
+      if (!data.commercial_registration.trim()) next.commercial_registration = REQUIRED
       if (!data.new_password) next.new_password = REQUIRED
       else if (data.new_password.length < 8) next.new_password = "كلمة المرور يجب ألا تقل عن 8 أحرف"
       if (!data.confirm_password) next.confirm_password = REQUIRED
       else if (data.confirm_password !== data.new_password) next.confirm_password = "كلمتا المرور غير متطابقتين"
     }
-    if (step === 3 && data.bank_enabled) {
-      if (!data.bank_name.trim()) next.bank_name = REQUIRED
-      if (!data.bank_account_name.trim()) next.bank_account_name = REQUIRED
-      if (!data.iban.trim()) next.iban = REQUIRED
+    if (step === 1) {
+      if (!data.city.trim()) next.city = REQUIRED
+      if (!data.district.trim()) next.district = REQUIRED
+      if (!data.street.trim()) next.street = REQUIRED
+      if (data.bank_enabled) {
+        if (!data.bank_name.trim()) next.bank_name = REQUIRED
+        if (!data.bank_account_name.trim()) next.bank_account_name = REQUIRED
+        if (!data.iban.trim()) next.iban = REQUIRED
+      }
     }
-    if (step === 4 && data.prices_include_tax === undefined) next.prices_include_tax = REQUIRED
+    if (step === 2 && data.prices_include_tax === undefined) next.prices_include_tax = REQUIRED
+    if (step === 3 && data.email && !/^\S+@\S+\.\S+$/.test(data.email)) next.email = "البريد الإلكتروني غير صالح"
     setErrors(next)
     return Object.keys(next).length === 0
   }
@@ -248,62 +249,62 @@ export default function OnboardingPage() {
         <div className="hidden justify-between text-[11px] text-muted-foreground sm:flex">{STEPS.map((name, index) => <span key={name} className={cn(index === step && "font-bold text-primary")}>{name}</span>)}</div></div>
 
       <main className="rounded-xl border bg-card p-5 shadow-sm sm:p-8">
-        {step === 0 && <section className="space-y-5"><div><h2 className="text-lg font-semibold">هوية المنشأة</h2><p className="text-sm text-muted-foreground">البيانات الثابتة مرتبطة باشتراكك ولا يمكن تعديلها.</p></div>
-          <div className="grid gap-4 sm:grid-cols-2"><Field label="اسم النشاط" name="business_name" value={data.business_name} onChange={() => undefined} disabled />
-            <Field label="الرقم الضريبي" name="vat_number" value={data.vat_number} onChange={() => undefined} disabled /></div>
-          <div className="grid gap-4 sm:grid-cols-2"><Field label="معرف النظام" name="organization_id" value={data.organization_id} onChange={() => undefined} disabled />
-            <Field label="الدولة" name="country" value={data.country} onChange={() => undefined} disabled /></div>
-          <Field label="رقم السجل التجاري" name="commercial_registration" value={data.commercial_registration} error={errors.commercial_registration} onChange={(value) => { set("commercial_registration", value); }} placeholder="1010123456" />
+        {step === 0 && <section className="space-y-6">
+          <div><h2 className="text-lg font-semibold">بيانات المنشأة والأمان</h2><p className="text-sm leading-6 text-muted-foreground">تأكد من بيانات اشتراكك، ثم أنشئ كلمة مرور جديدة بدل كلمة المرور المؤقتة.</p></div>
+          <Field label="اسم النشاط" name="business_name" value={data.business_name} onChange={() => undefined} disabled description="اسم النشاط مسجل من لوحة الإدارة، ويظهر في مستندات المنشأة ولا يمكن تغييره من هنا." />
+          <Field label="الرقم الضريبي" name="vat_number" value={data.vat_number} onChange={() => undefined} disabled description="الرقم الضريبي هو اسم المستخدم للدخول، وهو مرتبط بالاشتراك ولا يمكن تعديله." />
+          <Field label="رقم السجل التجاري" name="commercial_registration" value={data.commercial_registration} error={errors.commercial_registration} onChange={(value) => { set("commercial_registration", value); }} placeholder="1010123456" description="أدخل رقم السجل التجاري الرسمي للمنشأة؛ سيظهر ضمن بياناتها القانونية." />
+          <Field label="الدولة" name="country" value={data.country} onChange={() => undefined} disabled description="النظام مهيأ حاليًا للمنشآت داخل المملكة العربية السعودية." />
+          <Field label="معرف النظام" name="organization_id" value={data.organization_id} onChange={() => undefined} disabled description="معرف فريد ينشئه النظام لربط جميع بيانات وفواتير منشأتك. احتفظ به عند التواصل مع الدعم." />
+          <div className="border-t pt-6"><h3 className="mb-1 font-semibold">بيانات الدخول الجديدة</h3><p className="mb-5 text-sm leading-6 text-muted-foreground">اختر كلمة مرور خاصة بك لا تقل عن 8 أحرف. بعد الحفظ لن تعمل كلمة المرور المؤقتة.</p>
+            <div className="space-y-5"><Field label="كلمة المرور الجديدة" name="new_password" type="password" value={data.new_password} error={errors.new_password} onChange={(value) => { set("new_password", value); }} />
+              <Field label="تأكيد كلمة المرور" name="confirm_password" type="password" value={data.confirm_password} error={errors.confirm_password} onChange={(value) => { set("confirm_password", value); }} /></div></div>
         </section>}
 
-        {step === 1 && <section className="space-y-5"><div><h2 className="text-lg font-semibold">التواصل والعنوان الوطني</h2><p className="text-sm text-muted-foreground">المدينة والحي والشارع مطلوبة، وبقية تفاصيل العنوان اختيارية.</p></div>
-          <div className="grid gap-4 sm:grid-cols-2"><Field label="رقم الجوال" name="phone" value={data.phone} optional onChange={(value) => { set("phone", value); }} />
-            <Field label="البريد الإلكتروني" name="email" type="email" value={data.email} error={errors.email} optional onChange={(value) => { set("email", value); }} /></div>
-          <div className="grid gap-4 sm:grid-cols-3"><Field label="المدينة" name="city" value={data.city} error={errors.city} onChange={(value) => { set("city", value); }} />
-            <Field label="الحي" name="district" value={data.district} error={errors.district} onChange={(value) => { set("district", value); }} />
-            <Field label="اسم الشارع" name="street" value={data.street} error={errors.street} onChange={(value) => { set("street", value); }} /></div>
-          <div className="grid gap-4 sm:grid-cols-3"><Field label="رقم المبنى" name="building_number" value={data.building_number} optional onChange={(value) => { set("building_number", value); }} />
-            <Field label="الرمز البريدي" name="postal_code" value={data.postal_code} optional onChange={(value) => { set("postal_code", value); }} />
-            <Field label="العنوان الوطني المختصر" name="short_address" value={data.short_address} optional onChange={(value) => { set("short_address", value); }} /></div>
+        {step === 1 && <section className="space-y-6">
+          <div><h2 className="text-lg font-semibold">العنوان والحساب البنكي للمنشأة</h2><p className="text-sm leading-6 text-muted-foreground">تُستخدم بيانات العنوان في رأس الفواتير والمستندات الرسمية. المدينة والحي والشارع حقول إلزامية.</p></div>
+          <Field label="العنوان الوطني المختصر" name="short_address" value={data.short_address} optional onChange={(value) => { set("short_address", value); }} description="رمز العنوان المختصر المكون عادة من 4 أحرف و4 أرقام، مثل RRRD2929." />
+          <Field label="المدينة" name="city" value={data.city} error={errors.city} onChange={(value) => { set("city", value); }} />
+          <Field label="الحي" name="district" value={data.district} error={errors.district} onChange={(value) => { set("district", value); }} />
+          <Field label="اسم الشارع" name="street" value={data.street} error={errors.street} onChange={(value) => { set("street", value); }} />
+          <div className="grid gap-4 sm:grid-cols-2"><Field label="رقم المبنى" name="building_number" value={data.building_number} optional onChange={(value) => { set("building_number", value); }} />
+            <Field label="الرمز البريدي" name="postal_code" value={data.postal_code} optional onChange={(value) => { set("postal_code", value); }} /></div>
+          <div className="border-t pt-6"><h3 className="mb-3 font-semibold">بيانات الحساب البنكي</h3>
+            <Toggle checked={data.bank_enabled} onChange={(value) => { set("bank_enabled", value); }} label="إضافة حساب بنكي للمنشأة" description="فعّل هذا الخيار إذا أردت إظهار بيانات التحويل البنكي في المستندات عند الحاجة." />
+            {data.bank_enabled && <div className="mt-5 space-y-5 rounded-lg border p-4"><Field label="اسم البنك" name="bank_name" value={data.bank_name} error={errors.bank_name} onChange={(value) => { set("bank_name", value); }} />
+              <Field label="اسم المستفيد" name="bank_account_name" value={data.bank_account_name} error={errors.bank_account_name} onChange={(value) => { set("bank_account_name", value); }} description="الاسم المسجل رسميًا لدى البنك لصاحب الحساب." />
+              <Field label="رقم الآيبان" name="iban" value={data.iban} error={errors.iban} onChange={(value) => { set("iban", value); }} description="أدخل الآيبان السعودي كاملًا ويبدأ بالحرفين SA." /></div>}</div>
         </section>}
 
-        {step === 2 && <section className="space-y-5"><div><h2 className="text-lg font-semibold">إنشاء كلمة المرور</h2><p className="text-sm text-muted-foreground">استبدل كلمة المرور المؤقتة بكلمة خاصة بك لا تقل عن 8 أحرف.</p></div>
-          <Field label="كلمة المرور الجديدة" name="new_password" type="password" value={data.new_password} error={errors.new_password} onChange={(value) => { set("new_password", value); }} />
-          <Field label="تأكيد كلمة المرور" name="confirm_password" type="password" value={data.confirm_password} error={errors.confirm_password} onChange={(value) => { set("confirm_password", value); }} />
-        </section>}
-
-        {step === 3 && <section className="space-y-6"><div><h2 className="text-lg font-semibold">الحساب البنكي والهوية البصرية</h2><p className="text-sm text-muted-foreground">يمكنك إضافة هذه البيانات الآن أو لاحقًا من الإعدادات.</p></div>
-          <Toggle checked={data.bank_enabled} onChange={(value) => { set("bank_enabled", value); }} label="إضافة حساب بنكي للمنشأة" description="تظهر بياناته في المستند فقط عند اختيار إظهار الحساب البنكي." />
-          {data.bank_enabled && <div className="grid gap-4 rounded-lg border p-4 sm:grid-cols-3"><Field label="اسم البنك" name="bank_name" value={data.bank_name} error={errors.bank_name} onChange={(value) => { set("bank_name", value); }} />
-            <Field label="اسم المستفيد" name="bank_account_name" value={data.bank_account_name} error={errors.bank_account_name} onChange={(value) => { set("bank_account_name", value); }} />
-            <Field label="رقم الآيبان" name="iban" value={data.iban} error={errors.iban} onChange={(value) => { set("iban", value); }} /></div>}
-          <div className="grid gap-4 sm:grid-cols-3">{([['logo_url','الشعار'],['stamp_url','الختم'],['signature_url','التوقيع']] as const).map(([key, label]) => <div key={key} className="space-y-2 rounded-lg border p-3"><Label>{label} (PNG اختياري)</Label>
-            <Input type="file" accept="image/png" onChange={(event) => void upload(key, event.target.files?.[0])} />
-            {data[key] && <img src={data[key]} alt={label} className="h-20 w-full object-contain" />}</div>)}</div>
-          {assetError && <p className="text-sm text-destructive">{assetError}</p>}
-          {data.stamp_url && <div className="space-y-2"><p className="text-sm font-medium">استخدام الختم في:</p><div className="grid gap-2 sm:grid-cols-3"><Toggle checked={data.stamp_on_invoice} onChange={(v) => { set("stamp_on_invoice", v); }} label="الفاتورة الضريبية" /><Toggle checked={data.stamp_on_quotation} onChange={(v) => { set("stamp_on_quotation", v); }} label="عرض السعر" /><Toggle checked={data.stamp_on_receipt} onChange={(v) => { set("stamp_on_receipt", v); }} label="سند القبض" /></div></div>}
-          {data.signature_url && <div className="space-y-2"><p className="text-sm font-medium">استخدام التوقيع في:</p><div className="grid gap-2 sm:grid-cols-3"><Toggle checked={data.signature_on_invoice} onChange={(v) => { set("signature_on_invoice", v); }} label="الفاتورة الضريبية" /><Toggle checked={data.signature_on_quotation} onChange={(v) => { set("signature_on_quotation", v); }} label="عرض السعر" /><Toggle checked={data.signature_on_receipt} onChange={(v) => { set("signature_on_receipt", v); }} label="سند القبض" /></div></div>}
-        </section>}
-
-        {step === 4 && <section className="space-y-6"><div><h2 className="text-lg font-semibold">الضريبة وطرق السداد</h2><p className="text-sm text-muted-foreground">ضريبة القيمة المضافة ثابتة بنسبة 15% ويُستخدم الكود S داخليًا.</p></div>
-          <div className={cn("grid gap-3 rounded-lg border p-4 sm:grid-cols-2", errors.prices_include_tax && "border-destructive")}><Toggle checked={data.prices_include_tax === true} onChange={() => { set("prices_include_tax", true); }} label="الأسعار شاملة الضريبة" /><Toggle checked={data.prices_include_tax === false} onChange={() => { set("prices_include_tax", false); }} label="الأسعار غير شاملة الضريبة" />{errors.prices_include_tax && <p className="text-xs text-destructive sm:col-span-2">{errors.prices_include_tax}</p>}</div>
-          <div className="space-y-3"><div><h3 className="font-medium">طرق السداد</h3><p className="text-xs text-muted-foreground">يمكن تعطيل الطريقة وتحديد هل مبالغها محصلة أم غير محصلة.</p></div>
+        {step === 2 && <section className="space-y-7">
+          <div><h2 className="text-lg font-semibold">الضريبة وطرق الدفع</h2><p className="text-sm leading-6 text-muted-foreground">تحدد هذه الاختيارات طريقة حساب الفواتير وتصنيف المبالغ المدفوعة والمستحقة.</p></div>
+          <div className="space-y-3"><h3 className="font-semibold">طريقة احتساب ضريبة القيمة المضافة 15% للأسعار</h3><p className="text-sm leading-6 text-muted-foreground">اختر «شاملة» إذا كان السعر الذي تدخله يتضمن الضريبة بالفعل، أو «غير شاملة» ليضيف النظام 15% إلى السعر.</p>
+            <div className={cn("grid gap-3 rounded-lg border p-4 sm:grid-cols-2", errors.prices_include_tax && "border-destructive")}><Toggle checked={data.prices_include_tax === true} onChange={() => { set("prices_include_tax", true); }} label="الأسعار شاملة الضريبة" /><Toggle checked={data.prices_include_tax === false} onChange={() => { set("prices_include_tax", false); }} label="الأسعار غير شاملة الضريبة" />{errors.prices_include_tax && <p className="text-xs text-destructive sm:col-span-2">{errors.prices_include_tax}</p>}</div></div>
+          <div className="space-y-3 border-t pt-6"><h3 className="font-semibold">نسبة ضمان الأعمال</h3><Toggle checked={data.retention_enabled} onChange={(value) => { set("retention_enabled", value); }} label="تفعيل حجز ضمان الأعمال" description="عند التفعيل يظهر حقل نسبة ضمان لكل بند في الفاتورة، وتكون النسبة الافتراضية صفر. تختار داخل الفاتورة هل يُحسب الحجز قبل الضريبة أو من الإجمالي شامل الضريبة." /></div>
+          <div className="space-y-3 border-t pt-6"><div><h3 className="font-semibold">طرق السداد</h3><p className="text-sm leading-6 text-muted-foreground">«مدفوعة» تعني أن المبلغ المسجل بهذه الطريقة يُخصم من المبلغ المستحق. يمكنك تعطيل أي طريقة دون حذفها.</p></div>
             {data.payment_methods.map((method, index) => <div key={`${method.name}-${index}`} className="grid items-center gap-2 rounded-lg border p-3 sm:grid-cols-[1fr_auto_auto_auto]">
               <span className="font-medium">{method.name}</span><Toggle checked={method.is_active} onChange={(value) => { set("payment_methods", data.payment_methods.map((item, i) => i === index ? {...item,is_active:value}:item)); }} label="مفعلة" />
-              <Toggle checked={method.is_collected} onChange={(value) => { set("payment_methods", data.payment_methods.map((item, i) => i === index ? {...item,is_collected:value}:item)); }} label="محصل" />
+              <Toggle checked={method.is_collected} onChange={(value) => { set("payment_methods", data.payment_methods.map((item, i) => i === index ? {...item,is_collected:value}:item)); }} label="مدفوعة" />
               {!method.is_default && <Button type="button" size="sm" variant="ghost" onClick={() => { set("payment_methods", data.payment_methods.filter((_, i) => i !== index)); }}><Trash2 className="h-4 w-4" /></Button>}</div>)}
-            <div className="flex gap-2"><Input value={customMethod} placeholder="طريقة مخصصة، مثل محفظة أو شيك" onChange={(event) => { setCustomMethod(event.target.value); }} /><Button type="button" variant="outline" onClick={() => { const name=customMethod.trim(); if(name && !data.payment_methods.some((m)=>m.name===name)){set("payment_methods",[...data.payment_methods,{name,is_collected:true,is_default:false,is_active:true}]);setCustomMethod("")}}}><Plus className="h-4 w-4" /> إضافة</Button></div>
-          </div>
+            <div className="flex gap-2"><Input value={customMethod} placeholder="طريقة مخصصة، مثل محفظة أو شيك" onChange={(event) => { setCustomMethod(event.target.value); }} /><Button type="button" variant="outline" onClick={() => { const name=customMethod.trim(); if(name && !data.payment_methods.some((m)=>m.name===name)){set("payment_methods",[...data.payment_methods,{name,is_collected:true,is_default:false,is_active:true}]);setCustomMethod("")}}}><Plus className="h-4 w-4" /> إضافة</Button></div></div>
         </section>}
 
-        {step === 5 && <section className="space-y-6"><div><h2 className="text-lg font-semibold">المزايا والتأكيد</h2><p className="text-sm text-muted-foreground">راجع الإعدادات الاختيارية ثم فعّل حسابك.</p></div>
-          <Toggle checked={data.retention_enabled} onChange={(value) => { set("retention_enabled", value); }} label="تفعيل حجز ضمان الأعمال" description="ستظهر النسبة لكل بند داخل الفاتورة، والافتراضي صفر، مع اختيار أساس الاحتساب في الفاتورة." />
-          <div className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-medium">قالب شروط عروض الأسعار</h3><p className="text-xs text-muted-foreground">لا يضاف تلقائيًا إلى أي عرض سعر.</p></div>
-            <Button type="button" variant="outline" size="sm" onClick={() => { set("quotation_terms", [...DEFAULT_TERMS]); }}>استخدام القالب الافتراضي</Button></div>
-            {data.quotation_terms.map((term,index)=><div key={index} className="flex gap-2"><Textarea value={term} rows={2} onChange={(event)=>{ set("quotation_terms",data.quotation_terms.map((item,i)=>i===index?event.target.value:item)); }}/>
-              <div className="flex flex-col"><Button type="button" size="sm" variant="ghost" disabled={index===0} onClick={()=>{ moveTerm(index,-1); }}><ArrowUp className="h-4 w-4"/></Button><Button type="button" size="sm" variant="ghost" disabled={index===data.quotation_terms.length-1} onClick={()=>{ moveTerm(index,1); }}><ArrowDown className="h-4 w-4"/></Button><Button type="button" size="sm" variant="ghost" onClick={()=>{ set("quotation_terms",data.quotation_terms.filter((_,i)=>i!==index)); }}><Trash2 className="h-4 w-4"/></Button></div></div>)}
+        {step === 3 && <section className="space-y-7">
+          <div><h2 className="text-lg font-semibold">بيانات التواصل وشعار المنشأة</h2><p className="text-sm leading-6 text-muted-foreground">هذه البيانات اختيارية، لكنها تساعدك على إرسال المستندات وإظهار هوية منشأتك بصورة احترافية.</p></div>
+          <Field label="رقم الجوال" name="phone" value={data.phone} optional onChange={(value) => { set("phone", value); }} description="يُستخدم للتواصل وإرسال الفواتير والمستندات مباشرة إلى العملاء عند تفعيل خدمات الإرسال." />
+          <Field label="البريد الإلكتروني" name="email" type="email" value={data.email} error={errors.email} optional onChange={(value) => { set("email", value); }} description="يُستخدم كعنوان إرسال للفواتير وعروض الأسعار والإشعارات إلى العملاء." />
+          <div className="space-y-3 border-t pt-6"><h3 className="font-semibold">شعار المنشأة</h3><p className="text-sm leading-6 text-muted-foreground">يظهر الشعار في جميع المستندات الصادرة. الملف يجب أن يكون بصيغة PNG وبحجم لا يتجاوز 2MB.</p><Input type="file" accept="image/png" onChange={(event) => void upload("logo_url", event.target.files?.[0])} />{data.logo_url && <img src={data.logo_url} alt="الشعار" className="h-24 w-full rounded-lg border object-contain p-2" />}</div>
+          <div className="space-y-3 border-t pt-6"><h3 className="font-semibold">الختم</h3><p className="text-sm leading-6 text-muted-foreground">الختم اختياري وليس شرطًا لصحة الفاتورة. بعد رفعه يمكنك تحديد المستندات التي يظهر فيها.</p><Input type="file" accept="image/png" onChange={(event) => void upload("stamp_url", event.target.files?.[0])} />{data.stamp_url && <><img src={data.stamp_url} alt="الختم" className="h-24 w-full rounded-lg border object-contain p-2" /><div className="grid gap-2 sm:grid-cols-3"><Toggle checked={data.stamp_on_invoice} onChange={(v) => { set("stamp_on_invoice", v); }} label="الفاتورة الضريبية" /><Toggle checked={data.stamp_on_quotation} onChange={(v) => { set("stamp_on_quotation", v); }} label="عرض السعر" /><Toggle checked={data.stamp_on_receipt} onChange={(v) => { set("stamp_on_receipt", v); }} label="سند القبض" /></div></>}</div>
+          <div className="space-y-3 border-t pt-6"><h3 className="font-semibold">التوقيع</h3><p className="text-sm leading-6 text-muted-foreground">التوقيع اختياري، ويمكن إظهاره أو إخفاؤه بصورة مستقلة لكل نوع مستند.</p><Input type="file" accept="image/png" onChange={(event) => void upload("signature_url", event.target.files?.[0])} />{data.signature_url && <><img src={data.signature_url} alt="التوقيع" className="h-24 w-full rounded-lg border object-contain p-2" /><div className="grid gap-2 sm:grid-cols-3"><Toggle checked={data.signature_on_invoice} onChange={(v) => { set("signature_on_invoice", v); }} label="الفاتورة الضريبية" /><Toggle checked={data.signature_on_quotation} onChange={(v) => { set("signature_on_quotation", v); }} label="عرض السعر" /><Toggle checked={data.signature_on_receipt} onChange={(v) => { set("signature_on_receipt", v); }} label="سند القبض" /></div></>}</div>
+          {assetError && <p className="text-sm text-destructive">{assetError}</p>}
+          <div className="space-y-3 border-t pt-6"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-semibold">شروط وأحكام عروض الأسعار</h3><p className="text-sm leading-6 text-muted-foreground">تحفظ الشروط كبنود منفصلة قابلة للترتيب. لا تظهر تلقائيًا؛ تختار إضافتها عند إنشاء عرض السعر، ويمكن تعديل نسخة العرض دون تغيير القالب الأصلي.</p></div><Button type="button" variant="outline" size="sm" onClick={() => { set("quotation_terms", [...DEFAULT_TERMS]); }}>استخدام القالب الافتراضي</Button></div>
+            {data.quotation_terms.map((term,index)=><div key={index} className="flex gap-2"><Textarea value={term} rows={2} onChange={(event)=>{ set("quotation_terms",data.quotation_terms.map((item,i)=>i===index?event.target.value:item)); }}/><div className="flex flex-col"><Button type="button" size="sm" variant="ghost" disabled={index===0} onClick={()=>{ moveTerm(index,-1); }}><ArrowUp className="h-4 w-4"/></Button><Button type="button" size="sm" variant="ghost" disabled={index===data.quotation_terms.length-1} onClick={()=>{ moveTerm(index,1); }}><ArrowDown className="h-4 w-4"/></Button><Button type="button" size="sm" variant="ghost" onClick={()=>{ set("quotation_terms",data.quotation_terms.filter((_,i)=>i!==index)); }}><Trash2 className="h-4 w-4"/></Button></div></div>)}
             <Button type="button" variant="outline" size="sm" onClick={()=>{ set("quotation_terms",[...data.quotation_terms,""]); }}><Plus className="h-4 w-4"/> إضافة بند</Button></div>
-          <div className="rounded-lg bg-muted/50 p-4 text-sm"><p className="font-semibold">سيتم تفعيل الحساب بالبيانات التالية:</p><p>{data.business_name} — {data.vat_number}</p><p>{data.city}، {data.district}، {data.street}</p><p>طرق السداد المفعلة: {data.payment_methods.filter((method)=>method.is_active).map((method)=>method.name).join("، ")}</p></div>
+        </section>}
+
+        {step === 4 && <section className="space-y-6"><div><h2 className="text-lg font-semibold">مراجعة وتأكيد البيانات</h2><p className="text-sm leading-6 text-muted-foreground">راجع الملخص قبل التفعيل. يمكنك تعديل البيانات القابلة للتعديل لاحقًا من صفحة الإعدادات.</p></div>
+          <div className="space-y-3 rounded-lg border p-4 text-sm"><p><span className="text-muted-foreground">المنشأة:</span> <strong>{data.business_name}</strong></p><p><span className="text-muted-foreground">الرقم الضريبي:</span> {data.vat_number}</p><p><span className="text-muted-foreground">السجل التجاري:</span> {data.commercial_registration}</p><p><span className="text-muted-foreground">العنوان:</span> {data.city}، {data.district}، {data.street}</p><p><span className="text-muted-foreground">الحساب البنكي:</span> {data.bank_enabled ? `${data.bank_name} — ${data.iban}` : "غير مضاف"}</p><p><span className="text-muted-foreground">احتساب الضريبة:</span> {data.prices_include_tax ? "الأسعار شاملة الضريبة" : "الأسعار غير شاملة الضريبة"}</p><p><span className="text-muted-foreground">طرق السداد المفعلة:</span> {data.payment_methods.filter((method)=>method.is_active).map((method)=>method.name).join("، ")}</p></div>
+          <div className="rounded-lg bg-primary/5 p-4 text-sm leading-6"><strong>ماذا يحدث عند التأكيد؟</strong><p>سيتم تغيير كلمة المرور المؤقتة، وحفظ إعدادات المنشأة مركزيًا، ثم تفعيل الحساب وفتح الشاشة الرئيسية. ويمكنك تعديل البيانات غير الثابتة لاحقًا من الإعدادات.</p></div>
           {fatalError && <p className="rounded-lg border border-destructive bg-destructive/5 p-3 text-sm text-destructive">{fatalError}</p>}
         </section>}
 
