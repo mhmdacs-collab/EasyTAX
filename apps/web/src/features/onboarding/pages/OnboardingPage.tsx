@@ -1,182 +1,315 @@
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { StepIndicator } from "../components/StepIndicator"
-import { Step1Business } from "../components/Step1Business"
-import { Step2Contact } from "../components/Step2Contact"
-import { Step3Confirm } from "../components/Step3Confirm"
+import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react"
+import { Button } from "@/shared/components/ui/button"
+import { Input } from "@/shared/components/ui/input"
+import { Label } from "@/shared/components/ui/label"
 import { Spinner } from "@/shared/components/ui/spinner"
-import { db } from "@/lib/db"
+import { Textarea } from "@/shared/components/ui/textarea"
+import { cn } from "@/shared/utils"
+import { db, type Organization } from "@/lib/db"
 import { authClient } from "@/lib/auth/client"
-import { completeCustomerOnboarding, fetchCustomerBootstrap, fetchCurrentSubscription } from "@/lib/subscription/api"
+import { completeCustomerOnboarding, fetchCustomerBootstrap } from "@/lib/subscription/api"
 import { bindOrganizationToAuthUser } from "@/lib/session/customerSession"
-import { generateId } from "@/shared/utils"
-import type { Organization } from "@/lib/db"
 
-const STEPS = ["معلومات المنشأة", "بيانات التواصل", "التأكيد"]
+const STEPS = ["المنشأة", "التواصل والعنوان", "الأمان", "البنك والهوية", "الضريبة والسداد", "المزايا والتأكيد"]
+const REQUIRED = "هذا الحقل مطلوب"
+const DEFAULT_TERMS = ["صلاحية عرض السعر 30 يومًا.", "الأسعار لا تشمل أي أعمال إضافية غير مذكورة.", "يبدأ التنفيذ بعد اعتماد العرض."]
+
+type PaymentMethod = { name: string; is_collected: boolean; is_default: boolean; is_active: boolean }
 
 export interface OnboardingData {
   business_name: string
   vat_number: string
-  commercial_registration?: string
-  city?: string
-  district?: string
-  street?: string
-  building_number?: string
-  postal_code?: string
-  short_address?: string
-  phone?: string
-  email?: string
+  organization_id: string
+  country: string
+  commercial_registration: string
+  phone: string
+  email: string
+  city: string
+  district: string
+  street: string
+  building_number: string
+  postal_code: string
+  short_address: string
+  new_password: string
+  confirm_password: string
+  bank_enabled: boolean
+  bank_name: string
+  bank_account_name: string
+  iban: string
+  logo_url: string
+  stamp_url: string
+  signature_url: string
+  stamp_on_invoice: boolean
+  stamp_on_quotation: boolean
+  stamp_on_receipt: boolean
+  signature_on_invoice: boolean
+  signature_on_quotation: boolean
+  signature_on_receipt: boolean
+  prices_include_tax?: boolean
+  retention_enabled: boolean
+  payment_methods: PaymentMethod[]
+  quotation_terms: string[]
+}
+
+const initialData: OnboardingData = {
+  business_name: "", vat_number: "", organization_id: "", country: "المملكة العربية السعودية",
+  commercial_registration: "", phone: "", email: "", city: "", district: "", street: "",
+  building_number: "", postal_code: "", short_address: "", new_password: "", confirm_password: "",
+  bank_enabled: false, bank_name: "", bank_account_name: "", iban: "", logo_url: "", stamp_url: "", signature_url: "",
+  stamp_on_invoice: false, stamp_on_quotation: false, stamp_on_receipt: false,
+  signature_on_invoice: false, signature_on_quotation: false, signature_on_receipt: false,
+  retention_enabled: false,
+  payment_methods: [
+    { name: "نقدًا", is_collected: true, is_default: true, is_active: true },
+    { name: "بطاقة بنكية", is_collected: true, is_default: true, is_active: true },
+    { name: "تحويل بنكي", is_collected: true, is_default: true, is_active: true },
+  ],
+  quotation_terms: [],
+}
+
+function Field({ label, name, value, error, onChange, type = "text", placeholder, optional = false, disabled = false }: {
+  label: string; name: string; value: string; error?: string; onChange: (value: string) => void
+  type?: string; placeholder?: string; optional?: boolean; disabled?: boolean
+}) {
+  return <div className="space-y-2">
+    <Label htmlFor={name}>{label}{optional ? " (اختياري)" : " *"}</Label>
+    <Input id={name} type={type} value={value} disabled={disabled} placeholder={placeholder} dir={type === "text" ? "auto" : "ltr"}
+      className={cn(error && "border-destructive focus-visible:ring-destructive")}
+      onChange={(event) => { onChange(event.target.value); }} />
+    {error && <p className="text-xs text-destructive">{error}</p>}
+  </div>
+}
+
+function Toggle({ checked, onChange, label, description }: { checked: boolean; onChange: (checked: boolean) => void; label: string; description?: string }) {
+  return <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3">
+    <input type="checkbox" checked={checked} onChange={(event) => { onChange(event.target.checked); }} className="mt-1 h-4 w-4" />
+    <span><span className="block text-sm font-medium">{label}</span>{description && <span className="text-xs text-muted-foreground">{description}</span>}</span>
+  </label>
+}
+
+async function pngToDataUrl(file: File): Promise<string> {
+  if (file.type !== "image/png") throw new Error("يسمح بملفات PNG فقط")
+  if (file.size > 2 * 1024 * 1024) throw new Error("حجم الملف يجب ألا يتجاوز 2MB")
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === "string") resolve(reader.result)
+      else reject(new Error("تعذر قراءة الملف"))
+    }
+    reader.onerror = () => { reject(new Error("تعذر قراءة الملف")); }
+    reader.readAsDataURL(file)
+  })
 }
 
 export default function OnboardingPage() {
   const navigate = useNavigate()
   const [step, setStep] = useState(0)
-  const [data, setData] = useState<Partial<OnboardingData>>({})
-  const [lockedFields, setLockedFields] = useState<Array<"business_name" | "vat_number">>([])
-  const [centralOrganizationId, setCentralOrganizationId] = useState<string | null>(null)
+  const [data, setData] = useState(initialData)
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [fatalError, setFatalError] = useState("")
+  const [customMethod, setCustomMethod] = useState("")
+  const [assetError, setAssetError] = useState("")
+  const [passwordChanged, setPasswordChanged] = useState(false)
+  const [originalPhone, setOriginalPhone] = useState("")
 
   useEffect(() => {
-    const fetchSubscription = async () => {
-      try {
-        const bootstrap = await fetchCustomerBootstrap()
-        setCentralOrganizationId(bootstrap.organization.id)
-        setData({
-          business_name: bootstrap.organization.business_name,
-          vat_number: bootstrap.organization.vat_number,
-          commercial_registration: bootstrap.organization.commercial_registration ?? undefined,
-          phone: bootstrap.organization.phone ?? undefined,
-          email: bootstrap.organization.email ?? undefined,
-          city: bootstrap.organization.city ?? undefined,
-          district: bootstrap.organization.district ?? undefined,
-          street: bootstrap.organization.street ?? undefined,
-          building_number: bootstrap.organization.building_number ?? undefined,
-          postal_code: bootstrap.organization.postal_code ?? undefined,
-          short_address: bootstrap.organization.short_address ?? undefined,
-        })
-        setLockedFields(["business_name", "vat_number"])
-        setLoading(false)
-        return
-      } catch {
-        // Legacy accounts fall back to the subscription endpoint.
-      }
-      try {
-        const json = await fetchCurrentSubscription()
-        if (json.subscription) {
-          setData({
-            business_name: json.subscription.business_name,
-            vat_number: json.subscription.vat_number,
-            phone: json.subscription.phone,
-          })
-          setLockedFields(["business_name", "vat_number"])
-        }
-      } catch {
-        // Network error — proceed with blank data
-      } finally {
-        setLoading(false)
-      }
-    }
-    void fetchSubscription()
+    void fetchCustomerBootstrap().then((bootstrap) => {
+      const organization = bootstrap.organization
+      setOriginalPhone(organization.phone ?? "")
+      setData((current) => ({ ...current,
+        business_name: organization.business_name, vat_number: organization.vat_number,
+        organization_id: organization.id, country: "المملكة العربية السعودية",
+        commercial_registration: organization.commercial_registration ?? "", phone: organization.phone ?? "",
+        email: organization.email ?? "", city: organization.city ?? "", district: organization.district ?? "",
+        street: organization.street ?? "", building_number: organization.building_number ?? "",
+        postal_code: organization.postal_code ?? "", short_address: organization.short_address ?? "",
+        bank_enabled: organization.bank_enabled, bank_name: organization.bank_name ?? "",
+        bank_account_name: organization.bank_account_name ?? "", iban: organization.iban ?? "",
+        logo_url: organization.logo_url ?? "", stamp_url: organization.stamp_url ?? "",
+        signature_url: organization.signature_url ?? "", stamp_on_invoice: organization.stamp_on_invoice,
+        stamp_on_quotation: organization.stamp_on_quotation, stamp_on_receipt: organization.stamp_on_receipt,
+        signature_on_invoice: organization.signature_on_invoice, signature_on_quotation: organization.signature_on_quotation,
+        signature_on_receipt: organization.signature_on_receipt, prices_include_tax: organization.prices_include_tax ?? undefined,
+        retention_enabled: organization.retention_enabled,
+      }))
+    }).catch(() => { setFatalError("تعذر تحميل بيانات المنشأة. حاول تسجيل الدخول مرة أخرى."); }).finally(() => { setLoading(false); })
   }, [])
 
-  const handleStep1 = (values: Pick<OnboardingData, "business_name" | "vat_number" | "commercial_registration">) => {
-    setData((prev) => ({ ...prev, ...values }))
-    setStep(1)
+  const progress = `${Math.round(((step + 1) / STEPS.length) * 100)}%`
+  const set = <K extends keyof OnboardingData>(key: K, value: OnboardingData[K]) => {
+    setData((current) => ({ ...current, [key]: value }))
+    setErrors((current) => Object.fromEntries(Object.entries(current).filter(([name]) => name !== key)))
   }
 
-  const handleStep2 = (values: Pick<OnboardingData, "city" | "district" | "street" | "building_number" | "postal_code" | "short_address" | "phone" | "email">) => {
-    setData((prev) => ({ ...prev, ...values }))
-    setStep(2)
+  const validate = () => {
+    const next: Record<string, string> = {}
+    if (step === 0 && !data.commercial_registration.trim()) next.commercial_registration = REQUIRED
+    if (step === 1) {
+      if (!data.city.trim()) next.city = REQUIRED
+      if (!data.district.trim()) next.district = REQUIRED
+      if (!data.street.trim()) next.street = REQUIRED
+      if (data.email && !/^\S+@\S+\.\S+$/.test(data.email)) next.email = "البريد الإلكتروني غير صالح"
+    }
+    if (step === 2) {
+      if (!data.new_password) next.new_password = REQUIRED
+      else if (data.new_password.length < 8) next.new_password = "كلمة المرور يجب ألا تقل عن 8 أحرف"
+      if (!data.confirm_password) next.confirm_password = REQUIRED
+      else if (data.confirm_password !== data.new_password) next.confirm_password = "كلمتا المرور غير متطابقتين"
+    }
+    if (step === 3 && data.bank_enabled) {
+      if (!data.bank_name.trim()) next.bank_name = REQUIRED
+      if (!data.bank_account_name.trim()) next.bank_account_name = REQUIRED
+      if (!data.iban.trim()) next.iban = REQUIRED
+    }
+    if (step === 4 && data.prices_include_tax === undefined) next.prices_include_tax = REQUIRED
+    setErrors(next)
+    return Object.keys(next).length === 0
   }
 
-  const handleConfirm = async () => {
-    setSaving(true)
+  const next = () => { if (validate()) setStep((current) => Math.min(current + 1, STEPS.length - 1)) }
+  const back = () => { setErrors({}); setStep((current) => Math.max(current - 1, 0)) }
+
+  const upload = async (key: "logo_url" | "stamp_url" | "signature_url", file?: File) => {
+    if (!file) return
+    try { setAssetError(""); set(key, await pngToDataUrl(file)) } catch (error) { setAssetError(error instanceof Error ? error.message : "ملف غير صالح") }
+  }
+
+  const moveTerm = (index: number, direction: -1 | 1) => {
+    const target = index + direction
+    if (target < 0 || target >= data.quotation_terms.length) return
+    const terms = [...data.quotation_terms]
+    const current = terms[index]
+    const adjacent = terms[target]
+    if (current === undefined || adjacent === undefined) return
+    terms[index] = adjacent
+    terms[target] = current
+    set("quotation_terms", terms)
+  }
+
+  const finish = async () => {
+    setSaving(true); setFatalError("")
     try {
-      const now = new Date().toISOString()
+      if (!passwordChanged) {
+        const result = await authClient.changePassword({ currentPassword: originalPhone, newPassword: data.new_password, revokeOtherSessions: false })
+        if (result.error) throw new Error(result.error.message || "تعذر تغيير كلمة المرور")
+        setPasswordChanged(true)
+      }
+      await completeCustomerOnboarding({
+        commercial_registration: data.commercial_registration, phone: data.phone, email: data.email,
+        city: data.city, district: data.district, street: data.street, building_number: data.building_number,
+        postal_code: data.postal_code, short_address: data.short_address, bank_enabled: data.bank_enabled,
+        bank_name: data.bank_name, bank_account_name: data.bank_account_name, iban: data.iban,
+        logo_url: data.logo_url, stamp_url: data.stamp_url, signature_url: data.signature_url,
+        stamp_on_invoice: data.stamp_on_invoice, stamp_on_quotation: data.stamp_on_quotation,
+        stamp_on_receipt: data.stamp_on_receipt, signature_on_invoice: data.signature_on_invoice,
+        signature_on_quotation: data.signature_on_quotation, signature_on_receipt: data.signature_on_receipt,
+        prices_include_tax: data.prices_include_tax as boolean, retention_enabled: data.retention_enabled,
+        payment_methods: data.payment_methods, quotation_terms: data.quotation_terms, password_changed: true,
+      })
       const session = await authClient.getSession()
       const authUserId = session.data?.user.id
-      if (!authUserId) {
-        throw new Error("غير مصرح")
+      if (!authUserId) throw new Error("انتهت جلسة الدخول")
+      const now = new Date().toISOString()
+      const organization: Organization = {
+        id: data.organization_id, auth_user_id: authUserId, business_name: data.business_name,
+        vat_number: data.vat_number, commercial_registration: data.commercial_registration, phone: data.phone,
+        email: data.email, city: data.city, district: data.district, street: data.street,
+        building_number: data.building_number, postal_code: data.postal_code, short_address: data.short_address,
+        logo_url: data.logo_url, stamp_url: data.stamp_url, signature_url: data.signature_url,
+        bank_enabled: data.bank_enabled, bank_name: data.bank_name, bank_account_name: data.bank_account_name,
+        iban: data.iban, prices_include_tax: data.prices_include_tax, retention_enabled: data.retention_enabled,
+        payment_methods: data.payment_methods, quotation_terms: data.quotation_terms,
+        stamp_on_invoice: data.stamp_on_invoice, stamp_on_quotation: data.stamp_on_quotation,
+        stamp_on_receipt: data.stamp_on_receipt, signature_on_invoice: data.signature_on_invoice,
+        signature_on_quotation: data.signature_on_quotation, signature_on_receipt: data.signature_on_receipt,
+        subscription_status: "active", created_at: now, updated_at: now, sync_status: "synced", version: 1,
       }
-      const org: Organization = {
-        id: centralOrganizationId ?? generateId(),
-        auth_user_id: authUserId,
-        business_name: data.business_name ?? "",
-        vat_number: data.vat_number ?? "",
-        commercial_registration: data.commercial_registration,
-        city: data.city,
-        district: data.district,
-        street: data.street,
-        building_number: data.building_number,
-        postal_code: data.postal_code,
-        short_address: data.short_address,
-        phone: data.phone,
-        email: data.email,
-        subscription_status: "active",
-        created_at: now,
-        updated_at: now,
-        sync_status: "pending",
-        version: 1,
-      }
-      if (centralOrganizationId) {
-        await completeCustomerOnboarding({
-          commercial_registration: data.commercial_registration,
-          phone: data.phone,
-          email: data.email,
-          city: data.city,
-          district: data.district,
-          street: data.street,
-          building_number: data.building_number,
-          postal_code: data.postal_code,
-          short_address: data.short_address,
-        })
-      }
-      await db.organizations.put(org)
-      await bindOrganizationToAuthUser(org.id, authUserId)
+      await db.organizations.put(organization)
+      await bindOrganizationToAuthUser(organization.id, authUserId)
       await navigate({ to: "/" })
-    } catch (err) {
-      console.error("Failed to save organization:", err)
-      setSaving(false)
-    }
+    } catch (error) {
+      setFatalError(error instanceof Error ? error.message : "تعذر إكمال الإعداد")
+    } finally { setSaving(false) }
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-muted/30">
-        <Spinner size="lg" />
-      </div>
-    )
-  }
+  if (loading) return <div className="flex min-h-screen items-center justify-center"><Spinner size="lg" /></div>
+  if (fatalError && !data.organization_id) return <div className="flex min-h-screen items-center justify-center p-6 text-destructive">{fatalError}</div>
 
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
-      <div className="w-full max-w-lg space-y-8">
-        <div className="text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground text-lg font-bold select-none">
-            ET
+  return <div className="min-h-screen bg-muted/30 p-4 py-8" dir="rtl">
+    <div className="mx-auto w-full max-w-3xl space-y-6">
+      <header className="text-center"><div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary font-bold text-primary-foreground">ET</div>
+        <h1 className="text-2xl font-bold">إعدادات أول دخول</h1><p className="text-sm text-muted-foreground">أكمل الأقسام التالية لتفعيل حساب منشأتك</p></header>
+      <div className="space-y-2"><div className="flex justify-between text-xs"><span>الخطوة {step + 1} من {STEPS.length}: {STEPS[step]}</span><span>{progress}</span></div>
+        <div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary transition-all" style={{ width: progress }} /></div>
+        <div className="hidden justify-between text-[11px] text-muted-foreground sm:flex">{STEPS.map((name, index) => <span key={name} className={cn(index === step && "font-bold text-primary")}>{name}</span>)}</div></div>
+
+      <main className="rounded-xl border bg-card p-5 shadow-sm sm:p-8">
+        {step === 0 && <section className="space-y-5"><div><h2 className="text-lg font-semibold">هوية المنشأة</h2><p className="text-sm text-muted-foreground">البيانات الثابتة مرتبطة باشتراكك ولا يمكن تعديلها.</p></div>
+          <div className="grid gap-4 sm:grid-cols-2"><Field label="اسم النشاط" name="business_name" value={data.business_name} onChange={() => undefined} disabled />
+            <Field label="الرقم الضريبي" name="vat_number" value={data.vat_number} onChange={() => undefined} disabled /></div>
+          <div className="grid gap-4 sm:grid-cols-2"><Field label="معرف النظام" name="organization_id" value={data.organization_id} onChange={() => undefined} disabled />
+            <Field label="الدولة" name="country" value={data.country} onChange={() => undefined} disabled /></div>
+          <Field label="رقم السجل التجاري" name="commercial_registration" value={data.commercial_registration} error={errors.commercial_registration} onChange={(value) => { set("commercial_registration", value); }} placeholder="1010123456" />
+        </section>}
+
+        {step === 1 && <section className="space-y-5"><div><h2 className="text-lg font-semibold">التواصل والعنوان الوطني</h2><p className="text-sm text-muted-foreground">المدينة والحي والشارع مطلوبة، وبقية تفاصيل العنوان اختيارية.</p></div>
+          <div className="grid gap-4 sm:grid-cols-2"><Field label="رقم الجوال" name="phone" value={data.phone} optional onChange={(value) => { set("phone", value); }} />
+            <Field label="البريد الإلكتروني" name="email" type="email" value={data.email} error={errors.email} optional onChange={(value) => { set("email", value); }} /></div>
+          <div className="grid gap-4 sm:grid-cols-3"><Field label="المدينة" name="city" value={data.city} error={errors.city} onChange={(value) => { set("city", value); }} />
+            <Field label="الحي" name="district" value={data.district} error={errors.district} onChange={(value) => { set("district", value); }} />
+            <Field label="اسم الشارع" name="street" value={data.street} error={errors.street} onChange={(value) => { set("street", value); }} /></div>
+          <div className="grid gap-4 sm:grid-cols-3"><Field label="رقم المبنى" name="building_number" value={data.building_number} optional onChange={(value) => { set("building_number", value); }} />
+            <Field label="الرمز البريدي" name="postal_code" value={data.postal_code} optional onChange={(value) => { set("postal_code", value); }} />
+            <Field label="العنوان الوطني المختصر" name="short_address" value={data.short_address} optional onChange={(value) => { set("short_address", value); }} /></div>
+        </section>}
+
+        {step === 2 && <section className="space-y-5"><div><h2 className="text-lg font-semibold">إنشاء كلمة المرور</h2><p className="text-sm text-muted-foreground">استبدل كلمة المرور المؤقتة بكلمة خاصة بك لا تقل عن 8 أحرف.</p></div>
+          <Field label="كلمة المرور الجديدة" name="new_password" type="password" value={data.new_password} error={errors.new_password} onChange={(value) => { set("new_password", value); }} />
+          <Field label="تأكيد كلمة المرور" name="confirm_password" type="password" value={data.confirm_password} error={errors.confirm_password} onChange={(value) => { set("confirm_password", value); }} />
+        </section>}
+
+        {step === 3 && <section className="space-y-6"><div><h2 className="text-lg font-semibold">الحساب البنكي والهوية البصرية</h2><p className="text-sm text-muted-foreground">يمكنك إضافة هذه البيانات الآن أو لاحقًا من الإعدادات.</p></div>
+          <Toggle checked={data.bank_enabled} onChange={(value) => { set("bank_enabled", value); }} label="إضافة حساب بنكي للمنشأة" description="تظهر بياناته في المستند فقط عند اختيار إظهار الحساب البنكي." />
+          {data.bank_enabled && <div className="grid gap-4 rounded-lg border p-4 sm:grid-cols-3"><Field label="اسم البنك" name="bank_name" value={data.bank_name} error={errors.bank_name} onChange={(value) => { set("bank_name", value); }} />
+            <Field label="اسم المستفيد" name="bank_account_name" value={data.bank_account_name} error={errors.bank_account_name} onChange={(value) => { set("bank_account_name", value); }} />
+            <Field label="رقم الآيبان" name="iban" value={data.iban} error={errors.iban} onChange={(value) => { set("iban", value); }} /></div>}
+          <div className="grid gap-4 sm:grid-cols-3">{([['logo_url','الشعار'],['stamp_url','الختم'],['signature_url','التوقيع']] as const).map(([key, label]) => <div key={key} className="space-y-2 rounded-lg border p-3"><Label>{label} (PNG اختياري)</Label>
+            <Input type="file" accept="image/png" onChange={(event) => void upload(key, event.target.files?.[0])} />
+            {data[key] && <img src={data[key]} alt={label} className="h-20 w-full object-contain" />}</div>)}</div>
+          {assetError && <p className="text-sm text-destructive">{assetError}</p>}
+          {data.stamp_url && <div className="space-y-2"><p className="text-sm font-medium">استخدام الختم في:</p><div className="grid gap-2 sm:grid-cols-3"><Toggle checked={data.stamp_on_invoice} onChange={(v) => { set("stamp_on_invoice", v); }} label="الفاتورة الضريبية" /><Toggle checked={data.stamp_on_quotation} onChange={(v) => { set("stamp_on_quotation", v); }} label="عرض السعر" /><Toggle checked={data.stamp_on_receipt} onChange={(v) => { set("stamp_on_receipt", v); }} label="سند القبض" /></div></div>}
+          {data.signature_url && <div className="space-y-2"><p className="text-sm font-medium">استخدام التوقيع في:</p><div className="grid gap-2 sm:grid-cols-3"><Toggle checked={data.signature_on_invoice} onChange={(v) => { set("signature_on_invoice", v); }} label="الفاتورة الضريبية" /><Toggle checked={data.signature_on_quotation} onChange={(v) => { set("signature_on_quotation", v); }} label="عرض السعر" /><Toggle checked={data.signature_on_receipt} onChange={(v) => { set("signature_on_receipt", v); }} label="سند القبض" /></div></div>}
+        </section>}
+
+        {step === 4 && <section className="space-y-6"><div><h2 className="text-lg font-semibold">الضريبة وطرق السداد</h2><p className="text-sm text-muted-foreground">ضريبة القيمة المضافة ثابتة بنسبة 15% ويُستخدم الكود S داخليًا.</p></div>
+          <div className={cn("grid gap-3 rounded-lg border p-4 sm:grid-cols-2", errors.prices_include_tax && "border-destructive")}><Toggle checked={data.prices_include_tax === true} onChange={() => { set("prices_include_tax", true); }} label="الأسعار شاملة الضريبة" /><Toggle checked={data.prices_include_tax === false} onChange={() => { set("prices_include_tax", false); }} label="الأسعار غير شاملة الضريبة" />{errors.prices_include_tax && <p className="text-xs text-destructive sm:col-span-2">{errors.prices_include_tax}</p>}</div>
+          <div className="space-y-3"><div><h3 className="font-medium">طرق السداد</h3><p className="text-xs text-muted-foreground">يمكن تعطيل الطريقة وتحديد هل مبالغها محصلة أم غير محصلة.</p></div>
+            {data.payment_methods.map((method, index) => <div key={`${method.name}-${index}`} className="grid items-center gap-2 rounded-lg border p-3 sm:grid-cols-[1fr_auto_auto_auto]">
+              <span className="font-medium">{method.name}</span><Toggle checked={method.is_active} onChange={(value) => { set("payment_methods", data.payment_methods.map((item, i) => i === index ? {...item,is_active:value}:item)); }} label="مفعلة" />
+              <Toggle checked={method.is_collected} onChange={(value) => { set("payment_methods", data.payment_methods.map((item, i) => i === index ? {...item,is_collected:value}:item)); }} label="محصل" />
+              {!method.is_default && <Button type="button" size="sm" variant="ghost" onClick={() => { set("payment_methods", data.payment_methods.filter((_, i) => i !== index)); }}><Trash2 className="h-4 w-4" /></Button>}</div>)}
+            <div className="flex gap-2"><Input value={customMethod} placeholder="طريقة مخصصة، مثل محفظة أو شيك" onChange={(event) => { setCustomMethod(event.target.value); }} /><Button type="button" variant="outline" onClick={() => { const name=customMethod.trim(); if(name && !data.payment_methods.some((m)=>m.name===name)){set("payment_methods",[...data.payment_methods,{name,is_collected:true,is_default:false,is_active:true}]);setCustomMethod("")}}}><Plus className="h-4 w-4" /> إضافة</Button></div>
           </div>
-          <h1 className="text-2xl font-bold">إعداد المنشأة</h1>
-          <p className="mt-1 text-sm text-muted-foreground">أدخل بيانات منشأتك لبدء إصدار المستندات</p>
-        </div>
+        </section>}
 
-        <StepIndicator steps={STEPS} currentStep={step} />
+        {step === 5 && <section className="space-y-6"><div><h2 className="text-lg font-semibold">المزايا والتأكيد</h2><p className="text-sm text-muted-foreground">راجع الإعدادات الاختيارية ثم فعّل حسابك.</p></div>
+          <Toggle checked={data.retention_enabled} onChange={(value) => { set("retention_enabled", value); }} label="تفعيل حجز ضمان الأعمال" description="ستظهر النسبة لكل بند داخل الفاتورة، والافتراضي صفر، مع اختيار أساس الاحتساب في الفاتورة." />
+          <div className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-medium">قالب شروط عروض الأسعار</h3><p className="text-xs text-muted-foreground">لا يضاف تلقائيًا إلى أي عرض سعر.</p></div>
+            <Button type="button" variant="outline" size="sm" onClick={() => { set("quotation_terms", [...DEFAULT_TERMS]); }}>استخدام القالب الافتراضي</Button></div>
+            {data.quotation_terms.map((term,index)=><div key={index} className="flex gap-2"><Textarea value={term} rows={2} onChange={(event)=>{ set("quotation_terms",data.quotation_terms.map((item,i)=>i===index?event.target.value:item)); }}/>
+              <div className="flex flex-col"><Button type="button" size="sm" variant="ghost" disabled={index===0} onClick={()=>{ moveTerm(index,-1); }}><ArrowUp className="h-4 w-4"/></Button><Button type="button" size="sm" variant="ghost" disabled={index===data.quotation_terms.length-1} onClick={()=>{ moveTerm(index,1); }}><ArrowDown className="h-4 w-4"/></Button><Button type="button" size="sm" variant="ghost" onClick={()=>{ set("quotation_terms",data.quotation_terms.filter((_,i)=>i!==index)); }}><Trash2 className="h-4 w-4"/></Button></div></div>)}
+            <Button type="button" variant="outline" size="sm" onClick={()=>{ set("quotation_terms",[...data.quotation_terms,""]); }}><Plus className="h-4 w-4"/> إضافة بند</Button></div>
+          <div className="rounded-lg bg-muted/50 p-4 text-sm"><p className="font-semibold">سيتم تفعيل الحساب بالبيانات التالية:</p><p>{data.business_name} — {data.vat_number}</p><p>{data.city}، {data.district}، {data.street}</p><p>طرق السداد المفعلة: {data.payment_methods.filter((method)=>method.is_active).map((method)=>method.name).join("، ")}</p></div>
+          {fatalError && <p className="rounded-lg border border-destructive bg-destructive/5 p-3 text-sm text-destructive">{fatalError}</p>}
+        </section>}
 
-        <div className="rounded-xl border bg-card p-8 shadow-sm">
-          {step === 0 && <Step1Business defaultValues={data} locked={lockedFields} onNext={handleStep1} />}
-          {step === 1 && <Step2Contact defaultValues={data} onBack={() => { setStep(0) }} onNext={handleStep2} />}
-          {step === 2 && (
-            <Step3Confirm
-              data={data as OnboardingData}
-              onBack={() => { setStep(1) }}
-              onConfirm={() => {
-                void handleConfirm()
-              }}
-              saving={saving}
-            />
-          )}
-        </div>
-      </div>
+        <div className="mt-8 flex gap-3"><Button type="button" variant="outline" onClick={back} disabled={step===0 || saving} className="flex-1">رجوع</Button>
+          {step < STEPS.length - 1 ? <Button type="button" onClick={next} className="flex-1">التالي</Button> : <Button type="button" loading={saving} onClick={() => void finish()} className="flex-1">حفظ وتفعيل الحساب</Button>}</div>
+      </main>
     </div>
-  )
+  </div>
 }
