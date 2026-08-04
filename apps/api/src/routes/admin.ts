@@ -187,7 +187,7 @@ adminRouter.post("/subscriptions", zValidator("json", createSubscriptionSchema),
           id, user_id, business_name, vat_number, phone, plan,
           subscription_duration_days, subscription_starts_at,
           subscription_expires_at, status
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW() + ($7 * INTERVAL '1 day'), 'active')
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7::integer, NOW(), NOW() + ($7::integer * INTERVAL '1 day'), 'active')
         RETURNING id, business_name, vat_number, phone, plan, status,
           subscription_starts_at AS starts_at,
           subscription_expires_at AS expires_at,
