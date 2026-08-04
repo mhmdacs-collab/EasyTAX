@@ -1,9 +1,6 @@
 ﻿import { db } from "@/lib/db"
 
-const resolveApiUrl = (): string => {
-  const value: unknown = Reflect.get(import.meta.env, "VITE_API_URL")
-  return typeof value === "string" && value.length > 0 ? value : "http://localhost:3000"
-}
+import { resolveApiUrl } from "@/lib/api/baseUrl"
 
 const API_URL = resolveApiUrl()
 
