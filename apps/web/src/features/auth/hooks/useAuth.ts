@@ -2,9 +2,9 @@
 import { useNavigate } from "@tanstack/react-router"
 
 const WRONG_CREDENTIALS_MESSAGE = "الرقم الضريبي أو كلمة المرور غير صحيحة."
-const SERVER_UNAVAILABLE_MESSAGE = "الخادم غير متاح حالياً. حاول مرة أخرى لاحقًا."
+const SERVER_UNAVAILABLE_MESSAGE = "تعذر الاتصال بالخادم. تحقق من الإنترنت وحاول مرة أخرى."
 const RATE_LIMIT_MESSAGE = "محاولات كثيرة. حاول مرة أخرى بعد قليل."
-const UNEXPECTED_LOGIN_ERROR_MESSAGE = "حدث خطأ غير متوقع أثناء تسجيل الدخول. حاول مرة أخرى."
+const UNEXPECTED_LOGIN_ERROR_MESSAGE = "حدث خطأ غير متوقع. حاول مرة أخرى."
 
 const KNOWN_ARABIC_MESSAGES = new Set([
   WRONG_CREDENTIALS_MESSAGE,

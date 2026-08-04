@@ -12,12 +12,13 @@ import { clearTenantStateIfVatDiff, ensureTenantContextForUser } from "@/lib/ses
 const schema = z.object({
   vat_number: z
     .string()
-    .min(1, "أدخل الرقم الضريبي")
-    .length(15, "الرقم الضريبي يجب أن يكون 15 رقماً")
-    .regex(/^\d+$/, "صيغة الرقم الضريبي غير صحيحة."),
+    .trim()
+    .min(1, "الرقم الضريبي مطلوب.")
+    .length(15, "يجب أن يتكون الرقم الضريبي من 15 رقمًا.")
+    .regex(/^\d+$/, "يجب أن يتكون الرقم الضريبي من 15 رقمًا."),
   password: z
     .string()
-    .min(1, "أدخل كلمة المرور")
+    .min(1, "كلمة المرور مطلوبة.")
     .min(8, "كلمة المرور يجب أن تكون 8 أحرف على الأقل"),
 })
 
@@ -56,13 +57,17 @@ export function LoginForm() {
   const onSubmit = async (data: FormData) => {
     try {
       setErrorMessage(null)
-      // VAT Number is stored as the Better Auth email using the @easytax.local domain
-      await signIn(`${data.vat_number}@easytax.local`, data.password)
-      await clearTenantStateIfVatDiff(data.vat_number)
+      // Normalize VAT: trim spaces and ensure @easytax.local is not doubled
+      const normalizedVat = data.vat_number.trim()
+      const email = normalizedVat.includes("@")
+        ? normalizedVat
+        : `${normalizedVat}@easytax.local`
+      await signIn(email, data.password)
+      await clearTenantStateIfVatDiff(normalizedVat)
       const session = await authClient.getSession()
       const userId = session.data?.user.id
       if (!userId) {
-        throw new Error("حدث خطأ غير متوقع أثناء تسجيل الدخول. حاول مرة أخرى.")
+        throw new Error("حدث خطأ غير متوقع. حاول مرة أخرى.")
       }
       const hasOrganization = await ensureTenantContextForUser(userId)
       await navigate({ to: hasOrganization ? "/" : "/onboarding" })
@@ -82,7 +87,7 @@ export function LoginForm() {
         <Label htmlFor="vat_number">الرقم الضريبي (VAT)</Label>
         <Input
           id="vat_number"
-          placeholder="300000000000003"
+          placeholder="أدخل الرقم الضريبي"
           dir="ltr"
           autoComplete="username"
           maxLength={15}
