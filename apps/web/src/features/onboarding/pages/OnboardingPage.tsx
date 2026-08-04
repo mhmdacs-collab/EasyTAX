@@ -6,15 +6,13 @@ import { Step2Contact } from "../components/Step2Contact"
 import { Step3Confirm } from "../components/Step3Confirm"
 import { Spinner } from "@/shared/components/ui/spinner"
 import { db } from "@/lib/db"
+import { authClient } from "@/lib/auth/client"
+import { completeCustomerOnboarding, fetchCustomerBootstrap, fetchCurrentSubscription } from "@/lib/subscription/api"
+import { bindOrganizationToAuthUser } from "@/lib/session/customerSession"
 import { generateId } from "@/shared/utils"
 import type { Organization } from "@/lib/db"
 
 const STEPS = ["معلومات المنشأة", "بيانات التواصل", "التأكيد"]
-
-const API_URL = (() => {
-  const v: unknown = Reflect.get(import.meta.env, "VITE_API_URL")
-  return typeof v === "string" && v.length > 0 ? v : "http://localhost:3000"
-})()
 
 export interface OnboardingData {
   business_name: string
@@ -23,7 +21,9 @@ export interface OnboardingData {
   city?: string
   district?: string
   street?: string
+  building_number?: string
   postal_code?: string
+  short_address?: string
   phone?: string
   email?: string
 }
@@ -33,25 +33,43 @@ export default function OnboardingPage() {
   const [step, setStep] = useState(0)
   const [data, setData] = useState<Partial<OnboardingData>>({})
   const [lockedFields, setLockedFields] = useState<Array<"business_name" | "vat_number">>([])
+  const [centralOrganizationId, setCentralOrganizationId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     const fetchSubscription = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/v1/subscription/me`, { credentials: "include" })
-        if (res.ok) {
-          const json = (await res.json()) as {
-            subscription: { business_name: string; vat_number: string; phone: string } | null
-          }
-          if (json.subscription) {
-            setData({
-              business_name: json.subscription.business_name,
-              vat_number: json.subscription.vat_number,
-              phone: json.subscription.phone,
-            })
-            setLockedFields(["business_name", "vat_number"])
-          }
+        const bootstrap = await fetchCustomerBootstrap()
+        setCentralOrganizationId(bootstrap.organization.id)
+        setData({
+          business_name: bootstrap.organization.business_name,
+          vat_number: bootstrap.organization.vat_number,
+          commercial_registration: bootstrap.organization.commercial_registration ?? undefined,
+          phone: bootstrap.organization.phone ?? undefined,
+          email: bootstrap.organization.email ?? undefined,
+          city: bootstrap.organization.city ?? undefined,
+          district: bootstrap.organization.district ?? undefined,
+          street: bootstrap.organization.street ?? undefined,
+          building_number: bootstrap.organization.building_number ?? undefined,
+          postal_code: bootstrap.organization.postal_code ?? undefined,
+          short_address: bootstrap.organization.short_address ?? undefined,
+        })
+        setLockedFields(["business_name", "vat_number"])
+        setLoading(false)
+        return
+      } catch {
+        // Legacy accounts fall back to the subscription endpoint.
+      }
+      try {
+        const json = await fetchCurrentSubscription()
+        if (json.subscription) {
+          setData({
+            business_name: json.subscription.business_name,
+            vat_number: json.subscription.vat_number,
+            phone: json.subscription.phone,
+          })
+          setLockedFields(["business_name", "vat_number"])
         }
       } catch {
         // Network error — proceed with blank data
@@ -67,7 +85,7 @@ export default function OnboardingPage() {
     setStep(1)
   }
 
-  const handleStep2 = (values: Pick<OnboardingData, "city" | "district" | "street" | "postal_code" | "phone" | "email">) => {
+  const handleStep2 = (values: Pick<OnboardingData, "city" | "district" | "street" | "building_number" | "postal_code" | "short_address" | "phone" | "email">) => {
     setData((prev) => ({ ...prev, ...values }))
     setStep(2)
   }
@@ -76,15 +94,23 @@ export default function OnboardingPage() {
     setSaving(true)
     try {
       const now = new Date().toISOString()
+      const session = await authClient.getSession()
+      const authUserId = session.data?.user.id
+      if (!authUserId) {
+        throw new Error("غير مصرح")
+      }
       const org: Organization = {
-        id: generateId(),
+        id: centralOrganizationId ?? generateId(),
+        auth_user_id: authUserId,
         business_name: data.business_name ?? "",
         vat_number: data.vat_number ?? "",
         commercial_registration: data.commercial_registration,
         city: data.city,
         district: data.district,
         street: data.street,
+        building_number: data.building_number,
         postal_code: data.postal_code,
+        short_address: data.short_address,
         phone: data.phone,
         email: data.email,
         subscription_status: "active",
@@ -93,7 +119,21 @@ export default function OnboardingPage() {
         sync_status: "pending",
         version: 1,
       }
-      await db.organizations.add(org)
+      if (centralOrganizationId) {
+        await completeCustomerOnboarding({
+          commercial_registration: data.commercial_registration,
+          phone: data.phone,
+          email: data.email,
+          city: data.city,
+          district: data.district,
+          street: data.street,
+          building_number: data.building_number,
+          postal_code: data.postal_code,
+          short_address: data.short_address,
+        })
+      }
+      await db.organizations.put(org)
+      await bindOrganizationToAuthUser(org.id, authUserId)
       await navigate({ to: "/" })
     } catch (err) {
       console.error("Failed to save organization:", err)

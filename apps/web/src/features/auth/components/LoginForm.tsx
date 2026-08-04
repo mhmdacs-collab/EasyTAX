@@ -1,19 +1,26 @@
 import { useState } from "react"
 import { useForm, type Resolver } from "react-hook-form"
 import { z } from "zod"
-import { Link, useNavigate } from "@tanstack/react-router"
+import { useNavigate } from "@tanstack/react-router"
 import { Button } from "@/shared/components/ui/button"
 import { Input } from "@/shared/components/ui/input"
 import { Label } from "@/shared/components/ui/label"
 import { useAuth } from "../hooks/useAuth"
-import { db } from "@/lib/db"
+import { authClient } from "@/lib/auth/client"
+import { clearTenantStateIfVatDiff, ensureTenantContextForUser, hydrateOrganizationFromBootstrap } from "@/lib/session/customerSession"
+import { fetchCustomerBootstrap } from "@/lib/subscription/api"
 
 const schema = z.object({
   vat_number: z
     .string()
-    .length(15, "الرقم الضريبي يجب أن يكون 15 رقماً")
-    .regex(/^\d+$/, "أرقام فقط"),
-  password: z.string().min(8, "8 أحرف على الأقل"),
+    .trim()
+    .min(1, "الرقم الضريبي مطلوب.")
+    .length(15, "يجب أن يتكون الرقم الضريبي من 15 رقمًا.")
+    .regex(/^\d+$/, "يجب أن يتكون الرقم الضريبي من 15 رقمًا."),
+  password: z
+    .string()
+    .min(1, "كلمة المرور مطلوبة.")
+    .min(8, "كلمة المرور يجب أن تكون 8 أحرف على الأقل"),
 })
 
 type FormData = z.infer<typeof schema>
@@ -27,7 +34,7 @@ const resolver: Resolver<FormData> = (values) => {
   const errors: Record<string, { type: string; message: string }> = {}
   for (const issue of parsed.error.issues) {
     const field = issue.path[0]
-    if (field === "vat_number" || field === "password") {
+    if ((field === "vat_number" || field === "password") && !errors[field]) {
       errors[field] = {
         type: "validate",
         message: issue.message,
@@ -51,10 +58,32 @@ export function LoginForm() {
   const onSubmit = async (data: FormData) => {
     try {
       setErrorMessage(null)
-      // VAT Number is stored as the Better Auth email using the @easytax.local domain
-      await signIn(`${data.vat_number}@easytax.local`, data.password)
-      const hasOrganization = (await db.organizations.count()) > 0
-      await navigate({ to: hasOrganization ? "/" : "/onboarding" })
+      // Normalize VAT: trim spaces and ensure @easytax.local is not doubled
+      const normalizedVat = data.vat_number.trim()
+      const email = normalizedVat.includes("@")
+        ? normalizedVat
+        : `${normalizedVat}@easytax.local`
+      await signIn(email, data.password)
+      await clearTenantStateIfVatDiff(normalizedVat)
+      const session = await authClient.getSession()
+      const userId = session.data?.user.id
+      if (!userId) {
+        throw new Error("حدث خطأ غير متوقع. حاول مرة أخرى.")
+      }
+      try {
+        const bootstrap = await fetchCustomerBootstrap()
+        if (!bootstrap.organization.onboarding_completed_at) {
+          await navigate({ to: "/onboarding" })
+          return
+        }
+        await hydrateOrganizationFromBootstrap(bootstrap.organization, userId)
+        await navigate({ to: "/" })
+      } catch {
+        // Legacy accounts created by the old activation flow do not have a
+        // centralized organization yet. Keep their existing onboarding path.
+        const hasOrganization = await ensureTenantContextForUser(userId)
+        await navigate({ to: hasOrganization ? "/" : "/onboarding" })
+      }
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "حدث خطأ، حاول مجدداً")
     }
@@ -71,7 +100,7 @@ export function LoginForm() {
         <Label htmlFor="vat_number">الرقم الضريبي (VAT)</Label>
         <Input
           id="vat_number"
-          placeholder="300000000000003"
+          placeholder="أدخل الرقم الضريبي"
           dir="ltr"
           autoComplete="username"
           maxLength={15}
@@ -96,12 +125,6 @@ export function LoginForm() {
         تسجيل الدخول
       </Button>
 
-      <p className="text-center text-sm text-muted-foreground">
-        ليس لديك حساب؟{" "}
-        <Link to="/register" className="font-medium text-primary hover:underline">
-          تفعيل الاشتراك
-        </Link>
-      </p>
     </form>
   )
 }

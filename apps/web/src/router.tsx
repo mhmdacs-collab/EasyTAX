@@ -1,10 +1,17 @@
-﻿import { createRouter, createRoute, createRootRoute, redirect } from "@tanstack/react-router"
+import { createRouter, createRoute, createRootRoute, redirect } from "@tanstack/react-router"
 import { Outlet } from "@tanstack/react-router"
-import { lazy, Suspense } from "react"
+import { lazy, Suspense, useEffect, useState } from "react"
 import { authClient } from "@/lib/auth/client"
-import { db } from "@/lib/db"
 import { AppLayout } from "@/layouts/AppLayout"
+import { ensureTenantContextForUser, bindOrganizationToAuthUser, hydrateOrganizationFromBootstrap } from "@/lib/session/customerSession"
 import { Spinner } from "@/shared/components/ui/spinner"
+import { useAuth } from "@/features/auth/hooks/useAuth"
+import { useSubscriptionStatus } from "@/lib/subscription/useSubscriptionStatus"
+import { BlockedSubscriptionPage } from "@/features/subscription/BlockedSubscriptionPage"
+import { fetchCustomerBootstrap, fetchCurrentSubscription } from "@/lib/subscription/api"
+import { db } from "@/lib/db"
+import { generateId } from "@/shared/utils"
+import { useNavigate } from "@tanstack/react-router"
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
 const rootRoute = createRootRoute({
@@ -17,7 +24,6 @@ const rootRoute = createRootRoute({
 
 // ─── Public pages ─────────────────────────────────────────────────────────────
 const LoginPage = lazy(() => import("@/features/auth/pages/LoginPage"))
-const RegisterPage = lazy(() => import("@/features/auth/pages/SubscriptionActivationPage"))
 
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -25,14 +31,78 @@ const loginRoute = createRoute({
   component: LoginPage,
 })
 
-const registerRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/register",
-  component: RegisterPage,
-})
-
 // ─── Onboarding (requires auth, no org yet) ───────────────────────────────────
 const OnboardingPage = lazy(() => import("@/features/onboarding/pages/OnboardingPage"))
+
+/** Wraps onboarding with a subscription guard so suspended users never see the form.
+ *  Also re-seeds Dexie org from the API for returning users whose local state was cleared. */
+function OnboardingGuarded() {
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  const { data: subscription, isLoading } = useSubscriptionStatus(user?.id)
+  const [reseeding, setReseeding] = useState(false)
+
+  useEffect(() => {
+    if (!user || isLoading || !subscription || reseeding) return
+    if (subscription.effective_status !== "active") return
+    // Only re-seed if the user previously completed onboarding in this browser
+    if (!localStorage.getItem(`et_onboarded_${user.id}`)) return
+
+    // Returning user with cleared Dexie — re-seed from Neon subscription
+    setReseeding(true)
+    const reseed = async () => {
+      try {
+        const subData = await fetchCurrentSubscription()
+        if (!subData.subscription) { setReseeding(false); return }
+        const now = new Date().toISOString()
+        const orgId = generateId()
+        await db.organizations.add({
+          id: orgId,
+          auth_user_id: user.id,
+          business_name: subData.subscription.business_name,
+          vat_number: subData.subscription.vat_number,
+          phone: subData.subscription.phone,
+          subscription_status: "active",
+          created_at: now,
+          updated_at: now,
+          sync_status: "pending",
+          version: 1,
+        })
+        await bindOrganizationToAuthUser(orgId, user.id)
+        await navigate({ to: "/" })
+      } catch {
+        setReseeding(false)
+      }
+    }
+    void reseed()
+  }, [user, isLoading, subscription, navigate, reseeding])
+
+  if (isLoading || reseeding) {
+    return (
+      <div className="flex h-screen items-center justify-center" dir="rtl">
+        <div className="flex flex-col items-center gap-3 text-muted-foreground">
+          <Spinner size="lg" />
+          <p className="text-sm">جارٍ التحقق من الاشتراك…</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (subscription && subscription.effective_status !== "active") {
+    return (
+      <BlockedSubscriptionPage
+        status={subscription.effective_status}
+        vatNumber={subscription.vat_number}
+      />
+    )
+  }
+
+  return (
+    <Suspense fallback={<div className="flex h-screen items-center justify-center"><Spinner size="lg" /></div>}>
+      <OnboardingPage />
+    </Suspense>
+  )
+}
 
 const onboardingRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -40,11 +110,20 @@ const onboardingRoute = createRoute({
   beforeLoad: async () => {
     const session = await authClient.getSession()
     if (!session.data?.user) return redirect({ to: "/login" })
-    const hasOrganization = (await db.organizations.count()) > 0
-    if (hasOrganization) return redirect({ to: "/" })
+    try {
+      const bootstrap = await fetchCustomerBootstrap()
+      if (bootstrap.organization.onboarding_completed_at) {
+        await hydrateOrganizationFromBootstrap(bootstrap.organization, session.data.user.id)
+        return redirect({ to: "/" })
+      }
+      return
+    } catch {
+      const hasOrganization = await ensureTenantContextForUser(session.data.user.id)
+      if (hasOrganization) return redirect({ to: "/" })
+    }
     return
   },
-  component: OnboardingPage,
+  component: OnboardingGuarded,
 })
 
 // ─── Protected app shell ──────────────────────────────────────────────────────
@@ -56,7 +135,7 @@ const appRoute = createRoute({
     if (!session.data?.user) {
       return redirect({ to: "/login", search: { redirect: location.href } })
     }
-    const hasOrganization = (await db.organizations.count()) > 0
+    const hasOrganization = await ensureTenantContextForUser(session.data.user.id)
     if (!hasOrganization) return redirect({ to: "/onboarding" })
     return
   },
@@ -87,7 +166,6 @@ const settingsRoute = createRoute({ getParentRoute: () => appRoute, path: "/sett
 // ─── Tree ─────────────────────────────────────────────────────────────────────
 const routeTree = rootRoute.addChildren([
   loginRoute,
-  registerRoute,
   onboardingRoute,
   appRoute.addChildren([
     dashboardRoute,

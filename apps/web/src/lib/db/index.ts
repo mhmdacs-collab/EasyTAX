@@ -10,6 +10,7 @@ import Dexie, { type EntityTable } from "dexie";
 
 export interface Organization {
   id: string;
+  auth_user_id?: string;
   business_name: string;
   vat_number: string;
   commercial_registration?: string;
@@ -18,7 +19,9 @@ export interface Organization {
   city?: string;
   district?: string;
   street?: string;
+  building_number?: string;
   postal_code?: string;
+  short_address?: string;
   logo_url?: string;
   signature_url?: string;
   stamp_url?: string;
@@ -163,6 +166,13 @@ export interface Setting {
   updated_at: string;
 }
 
+export interface AppMeta {
+  key: string;
+  auth_user_id?: string;
+  organization_id?: string;
+  updated_at: string;
+}
+
 // ─── Dexie Database ───────────────────────────────────────────────────────────
 
 class EasyTaxDatabase extends Dexie {
@@ -173,6 +183,7 @@ class EasyTaxDatabase extends Dexie {
   purchase_invoices!: EntityTable<PurchaseInvoice, "id">;
   expenses!: EntityTable<Expense, "id">;
   settings!: EntityTable<Setting, "id">;
+  app_meta!: EntityTable<AppMeta, "key">;
 
   constructor() {
     super("EasyTaxDB");
@@ -195,6 +206,17 @@ class EasyTaxDatabase extends Dexie {
       purchase_invoices: "id, organization_id, invoice_date, supplier_vat_number, sync_status, deleted_at",
       expenses: "id, organization_id, category, date, sync_status, deleted_at",
       settings: "id, organization_id, key",
+    });
+
+    this.version(3).stores({
+      organizations: "id, auth_user_id, vat_number, sync_status",
+      customers: "id, organization_id, name, vat_number, sync_status, deleted_at",
+      projects: "id, organization_id, name, customer_id, sync_status, deleted_at",
+      documents: "id, organization_id, type, status, number, date, created_at, customer_id, project_id, sync_status, deleted_at",
+      purchase_invoices: "id, organization_id, invoice_date, supplier_vat_number, sync_status, deleted_at",
+      expenses: "id, organization_id, category, date, sync_status, deleted_at",
+      settings: "id, organization_id, key",
+      app_meta: "key, auth_user_id, organization_id",
     });
   }
 }

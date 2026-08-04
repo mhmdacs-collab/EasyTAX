@@ -7,6 +7,8 @@ type CreateSubscriptionResponse = {
   ok: true
   data: {
     message: string
+    login: { vat_number: string; email: string }
+    organization: { id: string; business_name: string; vat_number: string }
     subscription: unknown
   }
 }
@@ -45,7 +47,6 @@ export default function NewSubscriberPage() {
       setError("رقم الجوال غير صالح")
       return
     }
-
     setLoading(true)
     try {
       const response = await apiRequest<CreateSubscriptionResponse>("/api/v1/admin/subscriptions", {

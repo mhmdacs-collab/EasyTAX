@@ -10,7 +10,9 @@ const schema = z.object({
   city: z.string().optional(),
   district: z.string().optional(),
   street: z.string().optional(),
+  building_number: z.string().optional(),
   postal_code: z.string().optional(),
+  short_address: z.string().optional(),
   phone: z.string().optional(),
   email: z.email("بريد غير صالح").optional().or(z.literal("")),
 })
@@ -20,7 +22,7 @@ type FormData = z.infer<typeof schema>
 interface Props {
   defaultValues: Partial<OnboardingData>
   onBack: () => void
-  onNext: (data: Pick<OnboardingData, "city" | "district" | "street" | "postal_code" | "phone" | "email">) => void
+  onNext: (data: Pick<OnboardingData, "city" | "district" | "street" | "building_number" | "postal_code" | "short_address" | "phone" | "email">) => void
 }
 
 export function Step2Contact({ defaultValues, onBack, onNext }: Props) {
@@ -30,7 +32,9 @@ export function Step2Contact({ defaultValues, onBack, onNext }: Props) {
       city: defaultValues.city ?? "",
       district: defaultValues.district ?? "",
       street: defaultValues.street ?? "",
+      building_number: defaultValues.building_number ?? "",
       postal_code: defaultValues.postal_code ?? "",
+      short_address: defaultValues.short_address ?? "",
       phone: defaultValues.phone ?? "",
       email: defaultValues.email ?? "",
     },
@@ -66,12 +70,24 @@ export function Step2Contact({ defaultValues, onBack, onNext }: Props) {
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="phone">رقم الجوال</Label>
-          <Input id="phone" type="tel" placeholder="0500000000" dir="ltr" {...register("phone")} />
+          <Label htmlFor="building_number">رقم المبنى</Label>
+          <Input id="building_number" placeholder="1234" dir="ltr" {...register("building_number")} />
         </div>
         <div className="space-y-2">
           <Label htmlFor="postal_code">الرمز البريدي</Label>
           <Input id="postal_code" placeholder="12345" dir="ltr" {...register("postal_code")} />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="short_address">العنوان الوطني المختصر (اختياري)</Label>
+        <Input id="short_address" placeholder="مثال: RRRD2929" dir="ltr" {...register("short_address")} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="phone">رقم الجوال</Label>
+          <Input id="phone" type="tel" placeholder="0500000000" dir="ltr" {...register("phone")} />
         </div>
       </div>
 
