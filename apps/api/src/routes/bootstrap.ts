@@ -19,7 +19,6 @@ bootstrapRouter.get("/me", async (c) => {
       o.phone,
       o.email,
       o.status AS organization_status,
-      ou.role,
       s.id AS subscription_id,
       s.plan,
       s.status AS subscription_status,
@@ -32,13 +31,11 @@ bootstrapRouter.get("/me", async (c) => {
         WHEN s.status = 'active' THEN 'active'
         ELSE 'inactive'
       END AS effective_status
-    FROM organization_users ou
-    INNER JOIN organizations o
-      ON o.id = ou.organization_id AND o.deleted_at IS NULL
+    FROM organizations o
     LEFT JOIN subscriptions s
       ON s.organization_id = o.id
-    WHERE ou.user_id = ${session.user.id as string}
-      AND ou.deleted_at IS NULL
+    WHERE o.user_id = ${session.user.id as string}
+      AND o.deleted_at IS NULL
     ORDER BY s.created_at DESC NULLS LAST
     LIMIT 1
   `
@@ -54,7 +51,6 @@ bootstrapRouter.get("/me", async (c) => {
     phone: string | null
     email: string | null
     organization_status: string
-    role: string
     subscription_id: string | null
     plan: string | null
     subscription_status: string | null
@@ -68,7 +64,7 @@ bootstrapRouter.get("/me", async (c) => {
       id: session.user.id,
       email: session.user.email,
       name: session.user.name,
-      role: row.role,
+      role: "owner",
     },
     organization: {
       id: row.organization_id,

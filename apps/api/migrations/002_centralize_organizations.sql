@@ -1,9 +1,9 @@
--- Centralize organizations and their user memberships in Neon.
+-- Centralize one organization per user in Neon.
 -- subscriptions.organization_id remains nullable during the legacy-data transition.
 
 CREATE TABLE IF NOT EXISTS organizations (
   id TEXT PRIMARY KEY,
-  user_id TEXT,
+  user_id TEXT NOT NULL REFERENCES "user"(id),
   business_name TEXT NOT NULL,
   vat_number TEXT NOT NULL,
   phone TEXT,
@@ -15,10 +15,9 @@ CREATE TABLE IF NOT EXISTS organizations (
   deleted_at TIMESTAMPTZ
 );
 
--- Upgrade the existing phase-0 organizations table in place. Membership is
--- moved to organization_users, so legacy user_id must no longer be required.
+-- Upgrade the existing phase-0 organizations table in place.
 ALTER TABLE organizations
-  ALTER COLUMN user_id DROP NOT NULL,
+  ALTER COLUMN user_id SET NOT NULL,
   ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
   ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 
@@ -33,23 +32,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS organizations_vat_unique
   ON organizations (vat_number)
   WHERE deleted_at IS NULL;
 
-CREATE TABLE IF NOT EXISTS organization_users (
-  id TEXT PRIMARY KEY,
-  organization_id TEXT NOT NULL REFERENCES organizations(id),
-  user_id TEXT NOT NULL REFERENCES "user"(id),
-  role TEXT NOT NULL DEFAULT 'owner'
-    CHECK (role IN ('owner', 'admin', 'member')),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  deleted_at TIMESTAMPTZ
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS organization_users_user_unique
-  ON organization_users (user_id)
-  WHERE deleted_at IS NULL;
-
-CREATE UNIQUE INDEX IF NOT EXISTS organization_users_membership_unique
-  ON organization_users (organization_id, user_id)
+CREATE UNIQUE INDEX IF NOT EXISTS organizations_user_unique
+  ON organizations (user_id)
   WHERE deleted_at IS NULL;
 
 ALTER TABLE subscriptions

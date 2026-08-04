@@ -181,22 +181,14 @@ adminRouter.post("/subscriptions", zValidator("json", createSubscriptionSchema),
     }
 
     const organizationId = crypto.randomUUID()
-    const membershipId = crypto.randomUUID()
     const userId = createdUserId
 
     const subscription = await withTransaction(async (client) => {
       await client.query(
         `INSERT INTO organizations (
-          id, business_name, vat_number, phone, email, status
-        ) VALUES ($1, $2, $3, $4, $5, 'active')`,
-        [organizationId, body.business_name, body.vat_number, body.phone, body.email ?? null],
-      )
-
-      await client.query(
-        `INSERT INTO organization_users (
-          id, organization_id, user_id, role
-        ) VALUES ($1, $2, $3, 'owner')`,
-        [membershipId, organizationId, userId],
+          id, user_id, business_name, vat_number, phone, email, status
+        ) VALUES ($1, $2, $3, $4, $5, $6, 'active')`,
+        [organizationId, userId, body.business_name, body.vat_number, body.phone, body.email ?? null],
       )
 
       const result = await client.query(
