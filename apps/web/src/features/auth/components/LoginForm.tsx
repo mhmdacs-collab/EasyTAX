@@ -79,8 +79,6 @@ export function LoginForm() {
         await hydrateOrganizationFromBootstrap(bootstrap.organization, userId)
         await navigate({ to: "/" })
       } catch {
-        // Legacy accounts created by the old activation flow do not have a
-        // centralized organization yet. Keep their existing onboarding path.
         const hasOrganization = await ensureTenantContextForUser(userId)
         await navigate({ to: hasOrganization ? "/" : "/onboarding" })
       }

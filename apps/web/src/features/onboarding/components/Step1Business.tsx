@@ -11,7 +11,7 @@ const schema = z.object({
     .string()
     .length(15, "الرقم الضريبي يجب أن يكون 15 رقماً")
     .regex(/^\d+$/, "أرقام فقط"),
-  commercial_registration: z.string().optional(),
+  commercial_registration: z.string().trim().min(1, "رقم السجل التجاري مطلوب"),
 })
 
 type FormData = z.infer<typeof schema>
@@ -91,8 +91,11 @@ export function Step1Business({ defaultValues, locked = [], onNext }: Props) {
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="commercial_registration">السجل التجاري</Label>
+        <Label htmlFor="commercial_registration">رقم السجل التجاري *</Label>
         <Input id="commercial_registration" placeholder="1234567890" dir="ltr" {...register("commercial_registration")} />
+        {formState.errors.commercial_registration && (
+          <p className="text-xs text-destructive">{formState.errors.commercial_registration.message}</p>
+        )}
       </div>
 
       <Button type="submit" className="w-full">التالي →</Button>
