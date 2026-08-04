@@ -80,4 +80,7 @@ export async function bindOrganizationToAuthUser(
 ): Promise<void> {
   await db.organizations.update(organizationId, { auth_user_id: authUserId })
   await setSessionMeta({ auth_user_id: authUserId, organization_id: organizationId })
+  // Persist a per-user onboarding-complete flag so we can detect returning users
+  // whose Dexie org was cleared by a different company's activation
+  localStorage.setItem(`et_onboarded_${authUserId}`, "1")
 }

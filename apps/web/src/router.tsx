@@ -1,13 +1,17 @@
 import { createRouter, createRoute, createRootRoute, redirect } from "@tanstack/react-router"
 import { Outlet } from "@tanstack/react-router"
-import { lazy, Suspense } from "react"
+import { lazy, Suspense, useEffect, useState } from "react"
 import { authClient } from "@/lib/auth/client"
 import { AppLayout } from "@/layouts/AppLayout"
-import { ensureTenantContextForUser } from "@/lib/session/customerSession"
+import { ensureTenantContextForUser, bindOrganizationToAuthUser } from "@/lib/session/customerSession"
 import { Spinner } from "@/shared/components/ui/spinner"
 import { useAuth } from "@/features/auth/hooks/useAuth"
 import { useSubscriptionStatus } from "@/lib/subscription/useSubscriptionStatus"
 import { BlockedSubscriptionPage } from "@/features/subscription/BlockedSubscriptionPage"
+import { fetchCurrentSubscription } from "@/lib/subscription/api"
+import { db } from "@/lib/db"
+import { generateId } from "@/shared/utils"
+import { useNavigate } from "@tanstack/react-router"
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
 const rootRoute = createRootRoute({
@@ -37,12 +41,50 @@ const registerRoute = createRoute({
 // ─── Onboarding (requires auth, no org yet) ───────────────────────────────────
 const OnboardingPage = lazy(() => import("@/features/onboarding/pages/OnboardingPage"))
 
-/** Wraps onboarding with a subscription guard so suspended users never see the form */
+/** Wraps onboarding with a subscription guard so suspended users never see the form.
+ *  Also re-seeds Dexie org from the API for returning users whose local state was cleared. */
 function OnboardingGuarded() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const { data: subscription, isLoading } = useSubscriptionStatus(user?.id)
+  const [reseeding, setReseeding] = useState(false)
 
-  if (isLoading) {
+  useEffect(() => {
+    if (!user || isLoading || !subscription || reseeding) return
+    if (subscription.effective_status !== "active") return
+    // Only re-seed if the user previously completed onboarding in this browser
+    if (!localStorage.getItem(`et_onboarded_${user.id}`)) return
+
+    // Returning user with cleared Dexie — re-seed from Neon subscription
+    setReseeding(true)
+    const reseed = async () => {
+      try {
+        const subData = await fetchCurrentSubscription()
+        if (!subData.subscription) { setReseeding(false); return }
+        const now = new Date().toISOString()
+        const orgId = generateId()
+        await db.organizations.add({
+          id: orgId,
+          auth_user_id: user.id,
+          business_name: subData.subscription.business_name,
+          vat_number: subData.subscription.vat_number,
+          phone: subData.subscription.phone,
+          subscription_status: "active",
+          created_at: now,
+          updated_at: now,
+          sync_status: "pending",
+          version: 1,
+        })
+        await bindOrganizationToAuthUser(orgId, user.id)
+        await navigate({ to: "/" })
+      } catch {
+        setReseeding(false)
+      }
+    }
+    void reseed()
+  }, [user, isLoading, subscription, navigate, reseeding])
+
+  if (isLoading || reseeding) {
     return (
       <div className="flex h-screen items-center justify-center" dir="rtl">
         <div className="flex flex-col items-center gap-3 text-muted-foreground">
