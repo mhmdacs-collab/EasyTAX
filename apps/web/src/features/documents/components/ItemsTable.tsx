@@ -16,7 +16,7 @@ export function ItemsTable({ form }: Props) {
   const watchedItems = watch("items")
 
   const addItem = () => {
-    append({ id: generateId(), description: "", unit: "", quantity: 1, unit_price: 0, discount_percent: 0, subtotal: 0 })
+    append({ id: generateId(), description: "", unit: "", quantity: 1, unit_price: 0, discount_percent: 0, retention_percent:0, subtotal: 0 })
   }
 
   return (
@@ -30,6 +30,7 @@ export function ItemsTable({ form }: Props) {
               <th className="px-3 py-2.5 text-center font-medium text-muted-foreground w-[12%]">الكمية</th>
               <th className="px-3 py-2.5 text-center font-medium text-muted-foreground w-[15%]">سعر الوحدة</th>
               <th className="px-3 py-2.5 text-center font-medium text-muted-foreground w-[10%]">خصم%</th>
+              <th className="px-3 py-2.5 text-center font-medium text-muted-foreground w-[10%]">ضمان%</th>
               <th className="px-3 py-2.5 text-end font-medium text-muted-foreground w-[14%]">المجموع</th>
               <th className="w-[3%]" />
             </tr>
@@ -92,6 +93,7 @@ export function ItemsTable({ form }: Props) {
                       {...register(`items.${index}.discount_percent`, { valueAsNumber: true })}
                     />
                   </td>
+                  <td className="px-2 py-1.5"><Input type="number" min="0" max="100" step="0.1" aria-label="نسبة ضمان الأعمال" className="border-0 bg-transparent text-center shadow-none focus-visible:ring-0" {...register(`items.${index}.retention_percent`,{valueAsNumber:true})}/></td>
                   <td className="px-3 py-1.5 text-end font-medium tabular-nums">
                     {formatCurrency(subtotal).replace("ر.س.‏", "").trim()}
                   </td>

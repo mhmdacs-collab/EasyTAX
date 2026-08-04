@@ -1,5 +1,6 @@
 ﻿import { useState } from "react"
 import { useForm } from "react-hook-form"
+import { useEffect } from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { useNavigate } from "@tanstack/react-router"
@@ -19,7 +20,7 @@ import { TotalsSection } from "./TotalsSection"
 import { DOCUMENT_TYPE_LABELS } from "../lib/calculations"
 import { generateId } from "@/shared/utils"
 import { toast } from "@/shared/hooks/useToast"
-import { createDocumentDraft, issueDocumentDraft, updateDocumentDraft, type DocumentDraftInput } from "@/lib/platform/api"
+import { createDocumentDraft, fetchSettings, issueDocumentDraft, updateDocumentDraft, type DocumentDraftInput } from "@/lib/platform/api"
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ const itemSchema = z.object({
   quantity: z.number().positive().default(1),
   unit_price: z.number().min(0).default(0),
   discount_percent: z.number().min(0).max(100).default(0),
+  retention_percent: z.number().min(0).max(100).default(0),
   subtotal: z.number().default(0),
 })
 
@@ -87,7 +89,7 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
           customer_phone: draft.customer_phone ?? "",
           customer_email: draft.customer_email ?? "",
           customer_address: draft.customer_address ?? "",
-          items: draft.items.map((i) => ({ ...i, subtotal: i.subtotal })),
+          items: draft.items.map((i) => ({ ...i, retention_percent:i.retention_percent??0, subtotal: i.subtotal })),
           vat_rate: draft.vat_rate,
           vat_inclusive: draft.vat_inclusive,
           discount_amount: draft.discount_amount,
@@ -107,7 +109,7 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
           customer_phone: "",
           customer_email: "",
           customer_address: "",
-          items: [{ id: generateId(), description: "", unit: "", quantity: 1, unit_price: 0, discount_percent: 0, subtotal: 0 }],
+          items: [{ id: generateId(), description: "", unit: "", quantity: 1, unit_price: 0, discount_percent: 0, retention_percent:0, subtotal: 0 }],
           vat_rate: 15,
           vat_inclusive: false,
           discount_amount: 0,
@@ -119,20 +121,22 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
 
   const { register, watch, setValue } = form
   const docType = watch("type")
+  const [paymentMethods,setPaymentMethods]=useState<string[]>([])
+  useEffect(()=>{void fetchSettings().then((settings)=>{setPaymentMethods(settings.payment_methods.filter((method)=>method.is_active).map((method)=>method.name))})},[])
 
   const toCentralDraft = (data: DocumentFormData): DocumentDraftInput => ({
     customer_id: data.customer_id,
     issue_date: data.date,
     due_date: data.due_date || undefined,
     prices_include_tax: data.vat_inclusive,
-    retention_basis: data.retention_amount > 0 ? "before_tax" : undefined,
+    retention_basis: data.items.some((item)=>item.retention_percent>0) ? "before_tax" : undefined,
     discount_amount: data.discount_amount,
     notes: data.notes || undefined,
     show_bank_details: Boolean(data.payment_method),
     show_stamp: false,
     show_signature: false,
     reference_data: { purchase_order: data.purchase_order, reference_number: data.reference_number, payment_method: data.payment_method },
-    items: data.items.map((item) => ({ description:item.description,unit:item.unit,quantity:item.quantity,unit_price:item.unit_price,discount_percent:item.discount_percent,retention_percent:0 })),
+    items: data.items.map((item) => ({ description:item.description,unit:item.unit,quantity:item.quantity,unit_price:item.unit_price,discount_percent:item.discount_percent,retention_percent:item.retention_percent })),
   })
 
   const saveDraft = form.handleSubmit(async (data) => {
@@ -286,6 +290,11 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
           <div className="space-y-1.5">
             <Label>الشروط والأحكام</Label>
             <Textarea placeholder="شروط الدفع والتسليم..." rows={3} {...register("terms_and_conditions")} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>طريقة السداد</Label>
+            <Select value={watch("payment_method")||"none"} onValueChange={(value)=>{setValue("payment_method",value==="none"?"":value)}}><SelectTrigger><SelectValue placeholder="اختر طريقة السداد"/></SelectTrigger><SelectContent><SelectItem value="none">غير محددة</SelectItem>{paymentMethods.map((method)=><SelectItem key={method} value={method}>{method}</SelectItem>)}</SelectContent></Select>
+            <p className="text-xs text-muted-foreground">معلومة تظهر في الفاتورة ولا تنشئ قيدًا محاسبيًا.</p>
           </div>
         </div>
         <TotalsSection form={form} />

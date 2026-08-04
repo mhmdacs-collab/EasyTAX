@@ -70,13 +70,13 @@ async function saveDraft(organizationId: string, id: string, body: z.infer<typeo
     const customer = await client.query("SELECT * FROM customers WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL", [body.customer_id, organizationId])
     if (!customer.rows[0]) return { error: "CUSTOMER_NOT_FOUND" as const }
     if (update) {
-      const changed = await client.query(`UPDATE documents SET customer_id=$1,issue_date=$2,due_date=$3,prices_include_tax=$4,retention_basis=$5,subtotal=$6,tax_total=$7,retention_total=$8,total=$9,due_total=$9,show_bank_details=$10,show_stamp=$11,show_signature=$12,notes=$13,reference_data=$14,customer_snapshot=$15,updated_at=NOW(),sync_version=sync_version+1 WHERE id=$16 AND organization_id=$17 AND status='draft' AND deleted_at IS NULL RETURNING id`, [body.customer_id,body.issue_date,body.due_date||null,body.prices_include_tax,body.retention_basis||null,totals.subtotal,totals.taxTotal,totals.retentionTotal,totals.total,body.show_bank_details,body.show_stamp,body.show_signature,body.notes||null,JSON.stringify(body.reference_data),JSON.stringify(customer.rows[0]),id,organizationId])
+      const changed = await client.query(`UPDATE documents SET customer_id=$1,issue_date=$2,due_date=$3,prices_include_tax=$4,retention_basis=$5,subtotal=$6,discount_total=$7,tax_total=$8,retention_total=$9,total=$10,due_total=$10,show_bank_details=$11,show_stamp=$12,show_signature=$13,notes=$14,reference_data=$15,customer_snapshot=$16,updated_at=NOW(),sync_version=sync_version+1 WHERE id=$17 AND organization_id=$18 AND status='draft' AND deleted_at IS NULL RETURNING id`, [body.customer_id,body.issue_date,body.due_date||null,body.prices_include_tax,body.retention_basis||null,totals.subtotal,body.discount_amount,totals.taxTotal,totals.retentionTotal,totals.total,body.show_bank_details,body.show_stamp,body.show_signature,body.notes||null,JSON.stringify(body.reference_data),JSON.stringify(customer.rows[0]),id,organizationId])
       if (!changed.rows[0]) return { error: "DRAFT_NOT_EDITABLE" as const }
       await client.query("DELETE FROM document_items WHERE document_id=$1", [id])
     } else {
-      await client.query(`INSERT INTO documents(id,organization_id,customer_id,type,number,issue_date,due_date,status,prices_include_tax,retention_basis,subtotal,tax_total,retention_total,total,due_total,show_bank_details,show_stamp,show_signature,notes,reference_data,customer_snapshot) VALUES($1,$2,$3,'invoice',$4,$5,$6,'draft',$7,$8,$9,$10,$11,$12,$12,$13,$14,$15,$16,$17,$18)`, [id,organizationId,body.customer_id,`DRAFT-${id}`,body.issue_date,body.due_date||null,body.prices_include_tax,body.retention_basis||null,totals.subtotal,totals.taxTotal,totals.retentionTotal,totals.total,body.show_bank_details,body.show_stamp,body.show_signature,body.notes||null,JSON.stringify(body.reference_data),JSON.stringify(customer.rows[0])])
+      await client.query(`INSERT INTO documents(id,organization_id,customer_id,type,number,issue_date,due_date,status,prices_include_tax,retention_basis,subtotal,discount_total,tax_total,retention_total,total,due_total,show_bank_details,show_stamp,show_signature,notes,reference_data,customer_snapshot) VALUES($1,$2,$3,'invoice',$4,$5,$6,'draft',$7,$8,$9,$10,$11,$12,$13,$13,$14,$15,$16,$17,$18,$19)`, [id,organizationId,body.customer_id,`DRAFT-${id}`,body.issue_date,body.due_date||null,body.prices_include_tax,body.retention_basis||null,totals.subtotal,body.discount_amount,totals.taxTotal,totals.retentionTotal,totals.total,body.show_bank_details,body.show_stamp,body.show_signature,body.notes||null,JSON.stringify(body.reference_data),JSON.stringify(customer.rows[0])])
     }
-    for (const line of totals.lines) await client.query(`INSERT INTO document_items(document_id,description,quantity,unit_price,discount,tax_rate,retention_rate,line_subtotal,line_tax,line_retention,line_total,sort_order) VALUES($1,$2,$3,$4,$5,15,$6,$7,$8,$9,$10,$11)`, [id,line.description,line.quantity,line.unit_price,line.discount,line.retention_percent,line.line_subtotal,line.line_tax,line.line_retention,line.line_total,line.sort_order])
+    for (const line of totals.lines) await client.query(`INSERT INTO document_items(document_id,description,unit,quantity,unit_price,discount,tax_rate,retention_rate,line_subtotal,line_tax,line_retention,line_total,sort_order) VALUES($1,$2,$3,$4,$5,$6,15,$7,$8,$9,$10,$11,$12)`, [id,line.description,line.unit||null,line.quantity,line.unit_price,line.discount,line.retention_percent,line.line_subtotal,line.line_tax,line.line_retention,line.line_total,line.sort_order])
     return { id }
   })
 }
@@ -101,14 +101,21 @@ documentsRouter.post("/:id/issue", async (c) => {
   const result = await withTransaction(async (client) => {
     const draft = await client.query("SELECT id FROM documents WHERE id=$1 AND organization_id=$2 AND status='draft' AND deleted_at IS NULL FOR UPDATE", [c.req.param("id"), organizationId])
     if (!draft.rows[0]) return null
+    const organization = await client.query("SELECT * FROM organizations WHERE id=$1", [organizationId])
+    const seller = organization.rows[0] as Record<string, unknown> | undefined
+    const requiredSellerFields = ["business_name", "vat_number", "commercial_registration", "street", "building_number", "district", "city", "postal_code"]
+    if (!seller || requiredSellerFields.some((field) => !String(seller[field] ?? "").trim())) {
+      return { error: "SELLER_PROFILE_INCOMPLETE" as const }
+    }
     await client.query(`INSERT INTO document_sequences(organization_id,document_type,next_number) VALUES($1,'invoice',1) ON CONFLICT(organization_id,document_type) DO NOTHING`, [organizationId])
     const sequence = await client.query(`SELECT GREATEST(ds.next_number,COALESCE((SELECT MAX(number::bigint)+1 FROM documents WHERE organization_id=$1 AND type='invoice' AND number ~ '^\\d+$'),1)) AS candidate FROM document_sequences ds WHERE ds.organization_id=$1 AND ds.document_type='invoice' FOR UPDATE`, [organizationId])
     const candidate = Number(sequence.rows[0].candidate)
     const number = String(candidate).padStart(5,"0")
-    const organization = await client.query("SELECT * FROM organizations WHERE id=$1", [organizationId])
     await client.query("UPDATE document_sequences SET next_number=$1 WHERE organization_id=$2 AND document_type='invoice'", [candidate+1,organizationId])
     const issued = await client.query(`UPDATE documents SET number=$1,status='issued',uuid=$2,issue_time=LOCALTIME,organization_snapshot=$3,updated_at=NOW(),sync_version=sync_version+1 WHERE id=$4 RETURNING id,number`, [number,randomUUID(),JSON.stringify(organization.rows[0]),c.req.param("id")])
     return issued.rows[0] as { id:string; number:string }
   })
-  return result ? c.json({ document: result }) : c.json({ error: "المسودة غير موجودة أو صادرة مسبقًا" }, 409)
+  if (!result) return c.json({ error: "المسودة غير موجودة أو صادرة مسبقًا" }, 409)
+  if ("error" in result) return c.json({ error: "أكمل السجل التجاري والعنوان الوطني للمنشأة قبل إصدار الفاتورة" }, 422)
+  return c.json({ document: result })
 })

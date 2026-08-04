@@ -25,7 +25,7 @@ export function TotalsSection({ form }: Props) {
   const vatRate = watch("vat_rate")
   const vatInclusive = watch("vat_inclusive")
   const discountAmount = watch("discount_amount")
-  const retentionAmount = watch("retention_amount")
+  const retentionAmount = watchedItems.reduce((sum,item)=>sum+calcItemSubtotal(item.unit_price||0,item.quantity||0,item.discount_percent||0)*(item.retention_percent||0)/100,0)
 
   const totals = useMemo(() => {
     const items = watchedItems.map((item) => ({
@@ -58,34 +58,12 @@ export function TotalsSection({ form }: Props) {
         />
       </div>
 
-      {/* Optional retention */}
-      <div className="flex items-center gap-3">
-        <span className="shrink-0 text-sm text-muted-foreground">استقطاع (ر.س)</span>
-        <Input
-          type="number"
-          min="0"
-          step="0.01"
-          placeholder="0.00"
-          dir="ltr"
-          className="h-8 text-sm"
-          {...register("retention_amount", { valueAsNumber: true })}
-        />
-      </div>
-
       <Separator />
 
       {/* VAT settings */}
       <div className="flex items-center gap-3">
         <span className="shrink-0 text-sm text-muted-foreground">ضريبة%</span>
-        <Input
-          type="number"
-          min="0"
-          max="100"
-          step="0.01"
-          dir="ltr"
-          className="h-8 w-20 text-sm"
-          {...register("vat_rate", { valueAsNumber: true })}
-        />
+        <span className="rounded bg-muted px-3 py-1 font-medium">15% ثابتة</span>
         <label className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer">
           <input type="checkbox" className="rounded" {...register("vat_inclusive")} />
           شاملة الضريبة
