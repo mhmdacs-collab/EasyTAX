@@ -22,18 +22,12 @@ ALTER TABLE organizations
   ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
   ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conname = 'organizations_status_check'
-      AND conrelid = 'organizations'::regclass
-  ) THEN
-    ALTER TABLE organizations
-      ADD CONSTRAINT organizations_status_check
-      CHECK (status IN ('active', 'inactive', 'suspended'));
-  END IF;
-END $$;
+ALTER TABLE organizations
+  DROP CONSTRAINT IF EXISTS organizations_status_check;
+
+ALTER TABLE organizations
+  ADD CONSTRAINT organizations_status_check
+  CHECK (status IN ('active', 'inactive', 'suspended'));
 
 CREATE UNIQUE INDEX IF NOT EXISTS organizations_vat_unique
   ON organizations (vat_number)
