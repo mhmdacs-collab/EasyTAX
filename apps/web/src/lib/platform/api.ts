@@ -1,4 +1,6 @@
-const API_URL = import.meta.env.VITE_API_URL as string
+import { resolveApiUrl } from "@/lib/api/baseUrl"
+
+const API_URL = resolveApiUrl()
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers)

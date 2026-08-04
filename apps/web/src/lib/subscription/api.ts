@@ -1,4 +1,6 @@
-const API_URL = import.meta.env.VITE_API_URL as string
+import { resolveApiUrl } from "@/lib/api/baseUrl"
+
+const API_URL = resolveApiUrl()
 
 export type EffectiveStatus = "active" | "suspended" | "expired" | "inactive"
 
