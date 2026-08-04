@@ -1,220 +1,67 @@
-﻿import { useEffect } from "react"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { z } from "zod"
-import { useLiveQuery } from "dexie-react-hooks"
-import { Save, Building2 } from "lucide-react"
-import { db } from "@/lib/db"
+import { useEffect, useState } from "react"
+import { Building2, CreditCard, FileText, Landmark, Save } from "lucide-react"
+import { fetchSettings, saveSettings, type SettingsPayload } from "@/lib/platform/api"
 import { Button } from "@/shared/components/ui/button"
 import { Input } from "@/shared/components/ui/input"
 import { Label } from "@/shared/components/ui/label"
-import { Separator } from "@/shared/components/ui/separator"
+import { Textarea } from "@/shared/components/ui/textarea"
 import { toast } from "@/shared/hooks/useToast"
 
-const schema = z.object({
-  business_name: z.string().min(2, "اسم المنشأة مطلوب"),
-  vat_number: z.string().regex(/^\d{15}$/, "يجب أن يكون الرقم الضريبي 15 رقماً"),
-  commercial_registration: z.string().trim().min(1, "رقم السجل التجاري مطلوب"),
-  phone: z.string().optional(),
-  email: z.email("بريد إلكتروني غير صحيح").optional().or(z.literal("")),
-  show_phone_on_documents: z.boolean(),
-  show_email_on_documents: z.boolean(),
-  city: z.string().optional(),
-  district: z.string().optional(),
-  street: z.string().optional(),
-  building_number: z.string().optional(),
-  postal_code: z.string().optional(),
-  short_address: z.string().optional(),
-})
-
-type FormData = z.infer<typeof schema>
+type Form = { [key: string]: unknown; payment_methods: SettingsPayload["payment_methods"]; quotation_terms: string[]; invoice: number; quotation: number; receipt: number }
+const tabs = [
+  ["organization", "بيانات المنشأة", Building2], ["address", "العنوان والتواصل", Landmark],
+  ["bank", "الحساب البنكي", CreditCard], ["documents", "إعدادات المستندات", FileText],
+] as const
 
 export default function SettingsPage() {
-  const org = useLiveQuery(() => db.organizations.toArray().then((r) => r[0]))
-
-  const form = useForm<FormData>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      business_name: "",
-      vat_number: "",
-      commercial_registration: "",
-      phone: "",
-      email: "",
-      show_phone_on_documents: false,
-      show_email_on_documents: false,
-      city: "",
-      district: "",
-      street: "",
-      building_number: "",
-      postal_code: "",
-      short_address: "",
-    },
-  })
-
-  // Populate form when org loads
-  useEffect(() => {
-    if (org) {
-      form.reset({
-        business_name: org.business_name,
-        vat_number: org.vat_number,
-        commercial_registration: org.commercial_registration ?? "",
-        phone: org.phone ?? "",
-        email: org.email ?? "",
-        show_phone_on_documents: org.show_phone_on_documents ?? false,
-        show_email_on_documents: org.show_email_on_documents ?? false,
-        city: org.city ?? "",
-        district: org.district ?? "",
-        street: org.street ?? "",
-        building_number: org.building_number ?? "",
-        postal_code: org.postal_code ?? "",
-        short_address: org.short_address ?? "",
-      })
-    }
-  }, [org])
-
-  const onSubmit = form.handleSubmit(async (data) => {
-    if (!org) return
-    await db.organizations.update(org.id, {
-      ...data,
-      updated_at: new Date().toISOString(),
-      sync_status: "pending",
-      version: org.version + 1,
-    })
-    form.reset(data)
-    toast({ title: "تم الحفظ", description: "تم تحديث بيانات المنشأة", variant: "success" }) // clear dirty state
-  })
-
-  if (!org) return (
-    <div className="flex h-full items-center justify-center text-muted-foreground">
-      جاري التحميل...
-    </div>
-  )
-
-  return (
-    <div className="mx-auto max-w-2xl space-y-8 p-6">
-      <div>
-        <h1 className="text-2xl font-bold">الإعدادات</h1>
-        <p className="mt-1 text-sm text-muted-foreground">بيانات المنشأة التي تظهر في المستندات</p>
-      </div>
-
-      <form
-        onSubmit={(event) => {
-          void onSubmit(event)
-        }}
-        className="space-y-6"
-      >
-        {/* ── Business identity ── */}
-        <section className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Building2 className="size-4 text-muted-foreground" />
-            <h2 className="font-semibold">بيانات المنشأة</h2>
-          </div>
-          <Separator />
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="organization_id">معرف المنشأة</Label>
-              <Input
-                id="organization_id"
-                value={org.id}
-                readOnly
-                dir="ltr"
-                tabIndex={-1}
-                className="cursor-not-allowed bg-muted font-mono"
-                aria-describedby="organization_id_help"
-              />
-              <p id="organization_id_help" className="text-xs text-muted-foreground">
-                معرف نظام ثابت يُنشأ تلقائيًا ولا يمكن تعديله.
-              </p>
-            </div>
-
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="business_name">اسم المنشأة *</Label>
-              <Input id="business_name" placeholder="شركة النجوم للتجارة" {...form.register("business_name")} />
-              {form.formState.errors.business_name && (
-                <p className="text-xs text-destructive">{form.formState.errors.business_name.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="vat_number">الرقم الضريبي *</Label>
-              <Input id="vat_number" placeholder="300000000000000" dir="ltr" maxLength={15} {...form.register("vat_number")} />
-              {form.formState.errors.vat_number && (
-                <p className="text-xs text-destructive">{form.formState.errors.vat_number.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="cr">رقم السجل التجاري *</Label>
-              <Input id="cr" placeholder="1234567890" dir="ltr" {...form.register("commercial_registration")} />
-              {form.formState.errors.commercial_registration && (
-                <p className="text-xs text-destructive">{form.formState.errors.commercial_registration.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="phone">رقم الجوال</Label>
-              <Input id="phone" type="tel" placeholder="0500000000" dir="ltr" {...form.register("phone")} />
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                <input type="checkbox" {...form.register("show_phone_on_documents")} />
-                إظهار رقم الجوال في المستندات الصادرة
-              </label>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="email">البريد الإلكتروني</Label>
-              <Input id="email" type="email" placeholder="info@company.sa" dir="ltr" {...form.register("email")} />
-              {form.formState.errors.email && (
-                <p className="text-xs text-destructive">{form.formState.errors.email.message}</p>
-              )}
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                <input type="checkbox" {...form.register("show_email_on_documents")} />
-                إظهار البريد الإلكتروني في المستندات الصادرة
-              </label>
-            </div>
-          </div>
-        </section>
-
-        {/* ── Address ── */}
-        <section className="space-y-4">
-          <h2 className="font-semibold">العنوان الوطني</h2>
-          <Separator />
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="city">المدينة</Label>
-              <Input id="city" placeholder="الرياض" {...form.register("city")} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="district">الحي</Label>
-              <Input id="district" placeholder="العليا" {...form.register("district")} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="street">الشارع</Label>
-              <Input id="street" placeholder="شارع العروبة" {...form.register("street")} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="building_number">رقم المبنى</Label>
-              <Input id="building_number" placeholder="1234" dir="ltr" {...form.register("building_number")} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="postal_code">الرمز البريدي</Label>
-              <Input id="postal_code" placeholder="12345" dir="ltr" {...form.register("postal_code")} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="short_address">العنوان الوطني المختصر (اختياري)</Label>
-              <Input id="short_address" placeholder="مثال: RRRD2929" dir="ltr" {...form.register("short_address")} />
-            </div>
-          </div>
-        </section>
-
-        <div className="flex justify-end">
-          <Button type="submit" loading={form.formState.isSubmitting} disabled={!form.formState.isDirty} className="gap-2">
-            <Save className="size-4" />
-            حفظ التعديلات
-          </Button>
-        </div>
+  const [active, setActive] = useState<(typeof tabs)[number][0]>("organization")
+  const [form, setForm] = useState<Form | null>(null)
+  const [saving, setSaving] = useState(false)
+  useEffect(() => { void fetchSettings().then((data) => {
+    const o=data.organization, seq=Object.fromEntries(data.sequences.map((s) => [s.document_type, s.next_number]))
+    setForm({ ...o, payment_methods:data.payment_methods, quotation_terms:data.quotation_terms.map((t)=>t.text), invoice:seq.invoice||1, quotation:seq.quotation||1, receipt:seq.receipt||1 })
+  }).catch((error:unknown)=>{ toast({title:"تعذر تحميل الإعدادات",description:error instanceof Error?error.message:"حاول مرة أخرى",variant:"error"}); }) }, [])
+  if (!form) return <div className="p-6 text-muted-foreground">جاري تحميل الإعدادات...</div>
+  const set=(key:string,value:string|boolean|number)=>{ setForm((current)=>current ? ({...current,[key]:value}) : current); }
+  const field=(key:string,label:string, options?:{readOnly?:boolean;required?:boolean;dir?:"ltr"})=>{const value=form[key];return <div className="space-y-1.5">
+    <Label htmlFor={key}>{label}{options?.required ? " *" : ""}</Label>
+    <Input id={key} value={typeof value==="string"||typeof value==="number"?String(value):""} readOnly={options?.readOnly} required={options?.required} dir={options?.dir} className={options?.readOnly?"bg-muted":""} onChange={(e)=>{ set(key,e.target.value); }} />
+  </div>}
+  const submit=async()=>{setSaving(true);try{await saveSettings({
+    commercial_registration:form.commercial_registration,phone:form.phone,email:form.email,
+    show_phone_on_documents:Boolean(form.show_phone_on_documents),show_email_on_documents:Boolean(form.show_email_on_documents),
+    city:form.city,district:form.district,street:form.street,building_number:form.building_number,postal_code:form.postal_code,
+    additional_number:form.additional_number,short_address:form.short_address,bank_enabled:Boolean(form.bank_enabled),
+    bank_name:form.bank_name,bank_account_name:form.bank_account_name,iban:form.iban,prices_include_tax:Boolean(form.prices_include_tax),
+    retention_enabled:Boolean(form.retention_enabled),invoice_default_notes:form.invoice_default_notes,
+    quotation_default_notes:form.quotation_default_notes,receipt_default_notes:form.receipt_default_notes,
+    receipt_default_phrase:form.receipt_default_phrase,payment_methods:form.payment_methods,quotation_terms:form.quotation_terms,
+    sequences:{invoice:form.invoice,quotation:form.quotation,receipt:form.receipt},
+  });toast({title:"تم الحفظ",description:"حُفظت الإعدادات مركزيًا",variant:"success"})}catch(e){toast({title:"تعذر الحفظ",description:e instanceof Error?e.message:"حاول مرة أخرى",variant:"error"})}finally{setSaving(false)}}
+  return <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6" dir="rtl">
+    <div><h1 className="text-2xl font-bold">الإعدادات</h1><p className="text-sm text-muted-foreground">كل ما يظهر في مستندات منشأتك ويُحفظ مركزيًا.</p></div>
+    <div className="grid gap-5 lg:grid-cols-[230px_1fr]">
+      <nav className="flex gap-2 overflow-x-auto lg:flex-col">{tabs.map(([id,label,Icon])=><button key={id} onClick={()=>{ setActive(id); }} className={`flex min-w-max items-center gap-2 rounded-lg px-3 py-2 text-sm ${active===id?"bg-primary text-primary-foreground":"border bg-card"}`}><Icon className="size-4"/>{label}</button>)}</nav>
+      <form onSubmit={(e)=>{e.preventDefault();void submit()}} className="space-y-5 rounded-xl border bg-card p-4 sm:p-6">
+        {active==="organization"&&<><h2 className="text-lg font-semibold">بيانات المنشأة</h2><div className="grid gap-4 sm:grid-cols-2">
+          {field("id","معرف النظام",{readOnly:true,dir:"ltr"})}{field("country","الدولة",{readOnly:true})}
+          {field("business_name","اسم المنشأة",{readOnly:true})}{field("vat_number","الرقم الضريبي",{readOnly:true,dir:"ltr"})}
+          {field("commercial_registration","رقم السجل التجاري",{required:true,dir:"ltr"})}
+        </div><p className="text-xs text-muted-foreground">اسم المنشأة والرقم الضريبي ومعرف النظام بيانات تأسيس ثابتة لا تُعدّل من هنا.</p></>}
+        {active==="address"&&<><h2 className="text-lg font-semibold">العنوان الوطني والتواصل</h2><div className="grid gap-4 sm:grid-cols-2">
+          {field("city","المدينة",{required:true})}{field("district","الحي",{required:true})}{field("street","اسم الشارع",{required:true})}
+          {field("building_number","رقم المبنى (4 أرقام)",{required:true,dir:"ltr"})}{field("postal_code","الرمز البريدي (5 أرقام)",{required:true,dir:"ltr"})}
+          {field("additional_number","الرقم الإضافي (اختياري)",{dir:"ltr"})}{field("short_address","العنوان الوطني المختصر (اختياري)",{dir:"ltr"})}
+          {field("phone","رقم الجوال",{dir:"ltr"})}{field("email","البريد الإلكتروني",{dir:"ltr"})}
+        </div><div className="grid gap-2 sm:grid-cols-2"><Check label="إظهار رقم الجوال في المستندات" checked={Boolean(form.show_phone_on_documents)} onChange={(v)=>{ set("show_phone_on_documents",v); }}/><Check label="إظهار البريد في المستندات" checked={Boolean(form.show_email_on_documents)} onChange={(v)=>{ set("show_email_on_documents",v); }}/></div></>}
+        {active==="bank"&&<><h2 className="text-lg font-semibold">الحساب البنكي للمنشأة</h2><Check label="إضافة حساب بنكي للمنشأة" checked={Boolean(form.bank_enabled)} onChange={(v)=>{ set("bank_enabled",v); }}/>{Boolean(form.bank_enabled)&&<div className="grid gap-4 sm:grid-cols-2">{field("bank_name","اسم البنك",{required:true})}{field("bank_account_name","اسم المستفيد",{required:true})}<div className="sm:col-span-2">{field("iban","رقم الآيبان",{required:true,dir:"ltr"})}</div></div>}<p className="text-xs text-muted-foreground">يمكن استبدال بيانات الحساب الحالي وحفظ الحساب الجديد. نعتمد حسابًا واحدًا فقط.</p></>}
+        {active==="documents"&&<><h2 className="text-lg font-semibold">الضريبة والمستندات</h2><div className="grid gap-3 sm:grid-cols-2"><Check label="الأسعار شاملة ضريبة القيمة المضافة 15%" checked={Boolean(form.prices_include_tax)} onChange={(v)=>{ set("prices_include_tax",v); }}/><Check label="تفعيل حجز ضمان الأعمال" checked={Boolean(form.retention_enabled)} onChange={(v)=>{ set("retention_enabled",v); }}/></div>
+          <div><h3 className="mb-3 font-medium">عدادات المستندات</h3><div className="grid gap-4 sm:grid-cols-3">{field("invoice","عداد الفاتورة",{required:true,dir:"ltr"})}{field("quotation","عداد عرض السعر",{required:true,dir:"ltr"})}{field("receipt","عداد سند القبض / الاستلام",{required:true,dir:"ltr"})}</div><p className="mt-2 text-xs text-muted-foreground">القيمة الافتراضية 00001، ويُحجز الرقم النهائي عند الإصدار فقط.</p></div>
+          <div className="space-y-2"><Label>قالب عام لشروط عروض الأسعار</Label><Textarea rows={6} value={form.quotation_terms.join("\n")} onChange={(e)=>{ setForm({...form,quotation_terms:e.target.value.split("\n").filter(Boolean)}); }}/><p className="text-xs text-muted-foreground">كل سطر بند مستقل ويمكن تعديله داخل العرض دون تغيير القالب.</p></div></>}
+        <div className="flex justify-end border-t pt-4"><Button type="submit" loading={saving} className="gap-2"><Save className="size-4"/>حفظ التعديلات</Button></div>
       </form>
     </div>
-  )
+  </div>
 }
+
+function Check({label,checked,onChange}:{label:string;checked:boolean;onChange:(value:boolean)=>void}){return <label className="flex items-center gap-3 rounded-lg border p-3 text-sm"><input type="checkbox" checked={checked} onChange={(e)=>{ onChange(e.target.checked); }}/><span>{label}</span></label>}

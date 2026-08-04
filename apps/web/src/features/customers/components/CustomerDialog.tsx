@@ -2,153 +2,32 @@ import { useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { db, type Customer } from "@/lib/db"
-import { generateId } from "@/shared/utils"
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
-} from "@/shared/components/ui/dialog"
+import { createCustomer, updateCustomer, type CentralCustomer } from "@/lib/platform/api"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/shared/components/ui/dialog"
 import { Button } from "@/shared/components/ui/button"
 import { Input } from "@/shared/components/ui/input"
 import { Label } from "@/shared/components/ui/label"
+import { toast } from "@/shared/hooks/useToast"
 
-const schema = z.object({
-  name: z.string().min(2, "الاسم يجب أن يكون حرفين على الأقل"),
-  vat_number: z.string().optional(),
-  commercial_registration: z.string().optional(),
-  phone: z.string().optional(),
-  email: z.email("بريد إلكتروني غير صحيح").optional().or(z.literal("")),
-  address: z.string().optional(),
-  notes: z.string().optional(),
+const schema=z.object({
+  name:z.string().trim().min(2,"اسم العميل مطلوب"),
+  vat_number:z.string().regex(/^3\d{13}3$/,"الرقم الضريبي 15 رقمًا ويبدأ وينتهي بالرقم 3"),
+  commercial_registration:z.string().optional(),phone:z.string().optional(),email:z.email("البريد غير صحيح").optional().or(z.literal("")),notes:z.string().optional(),
+  city:z.string().trim().min(1,"المدينة مطلوبة"),district:z.string().trim().min(1,"الحي مطلوب"),street:z.string().trim().min(1,"الشارع مطلوب"),
+  building_number:z.string().regex(/^\d{4}$/,"رقم المبنى 4 أرقام"),postal_code:z.string().regex(/^\d{5}$/,"الرمز البريدي 5 أرقام"),
+  additional_number:z.string().regex(/^\d{4}$/,"الرقم الإضافي 4 أرقام").optional().or(z.literal("")),short_address:z.string().optional(),
 })
+type FormData=z.infer<typeof schema>
+const empty:FormData={name:"",vat_number:"",commercial_registration:"",phone:"",email:"",notes:"",city:"",district:"",street:"",building_number:"",postal_code:"",additional_number:"",short_address:""}
 
-type FormData = z.infer<typeof schema>
-
-interface Props {
-  open: boolean
-  onClose: () => void
-  organizationId: string
-  customer?: Customer
-}
-
-export function CustomerDialog({ open, onClose, organizationId, customer }: Props) {
-  const isEdit = !!customer
-
-  const form = useForm<FormData>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      name: customer?.name ?? "",
-      vat_number: customer?.vat_number ?? "",
-      commercial_registration: customer?.commercial_registration ?? "",
-      phone: customer?.phone ?? "",
-      email: customer?.email ?? "",
-      address: customer?.address ?? "",
-      notes: customer?.notes ?? "",
-    },
-  })
-
-  useEffect(() => {
-    if (open) {
-      form.reset({
-        name: customer?.name ?? "",
-        vat_number: customer?.vat_number ?? "",
-        commercial_registration: customer?.commercial_registration ?? "",
-        phone: customer?.phone ?? "",
-        email: customer?.email ?? "",
-        address: customer?.address ?? "",
-        notes: customer?.notes ?? "",
-      })
-    }
-  }, [open, customer])
-
-  const onSubmit = form.handleSubmit(async (data) => {
-    const now = new Date().toISOString()
-    if (customer) {
-      await db.customers.update(customer.id, {
-        ...data,
-        updated_at: now,
-        sync_status: "pending",
-        version: customer.version + 1,
-      })
-    } else {
-      await db.customers.add({
-        id: generateId(),
-        organization_id: organizationId,
-        name: data.name,
-        vat_number: data.vat_number || undefined,
-        commercial_registration: data.commercial_registration || undefined,
-        phone: data.phone || undefined,
-        email: data.email || undefined,
-        address: data.address || undefined,
-        notes: data.notes || undefined,
-        is_active: true,
-        created_at: now,
-        updated_at: now,
-        sync_status: "pending",
-        version: 1,
-      })
-    }
-    onClose()
-  })
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{isEdit ? "تعديل العميل" : "عميل جديد"}</DialogTitle>
-        </DialogHeader>
-
-        <form
-          onSubmit={(event) => {
-            void onSubmit(event)
-          }}
-          className="space-y-4"
-        >
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="name">اسم العميل *</Label>
-              <Input id="name" placeholder="شركة النجوم للتجارة" {...form.register("name")} />
-              {form.formState.errors.name && (
-                <p className="text-xs text-destructive">{form.formState.errors.name.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="vat_number">الرقم الضريبي</Label>
-              <Input id="vat_number" placeholder="300000000000000" dir="ltr" {...form.register("vat_number")} />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="cr">السجل التجاري</Label>
-              <Input id="cr" placeholder="1234567890" dir="ltr" {...form.register("commercial_registration")} />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="phone">رقم الجوال</Label>
-              <Input id="phone" type="tel" placeholder="0500000000" dir="ltr" {...form.register("phone")} />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="email">البريد الإلكتروني</Label>
-              <Input id="email" type="email" placeholder="info@company.sa" dir="ltr" {...form.register("email")} />
-              {form.formState.errors.email && (
-                <p className="text-xs text-destructive">{form.formState.errors.email.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="address">العنوان</Label>
-              <Input id="address" placeholder="الرياض — العليا — شارع العروبة" {...form.register("address")} />
-            </div>
-          </div>
-
-          <DialogFooter className="gap-2">
-            <Button type="button" variant="outline" onClick={onClose}>إلغاء</Button>
-            <Button type="submit" loading={form.formState.isSubmitting}>
-              {isEdit ? "حفظ التعديلات" : "إضافة العميل"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
+export function CustomerDialog({open,onClose,customer,onSaved}:{open:boolean;onClose:()=>void;customer?:CentralCustomer;onSaved:(customer:CentralCustomer)=>void}){
+  const form=useForm<FormData>({resolver:zodResolver(schema),defaultValues:empty})
+  useEffect(()=>{if(open)form.reset(customer?{...empty,...customer}:empty)},[open,customer])
+  const submit=form.handleSubmit(async(data)=>{try{const result=customer?await updateCustomer(customer.id,data):await createCustomer(data);onSaved(result.customer);onClose();toast({title:customer?"تم تحديث العميل":"تمت إضافة العميل",variant:"success"})}catch(e){toast({title:"تعذر الحفظ",description:e instanceof Error?e.message:"حاول مرة أخرى",variant:"error"})}})
+  const field=(key:keyof FormData,label:string,required=false,dir?:"ltr")=><div className="space-y-1.5"><Label htmlFor={key}>{label}{required?" *":""}</Label><Input id={key} dir={dir} {...form.register(key)}/>{form.formState.errors[key]&&<p className="text-xs text-destructive">{form.formState.errors[key].message}</p>}</div>
+  return <Dialog open={open} onOpenChange={(v)=>{if(!v)onClose()}}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl" dir="rtl"><DialogHeader><DialogTitle>{customer?"تعديل العميل":"عميل جديد"}</DialogTitle></DialogHeader>
+    <form onSubmit={(e)=>void submit(e)} className="space-y-5"><section className="grid gap-4 sm:grid-cols-2"><div className="sm:col-span-2">{field("name","اسم العميل",true)}</div>{field("vat_number","الرقم الضريبي",true,"ltr")}{field("commercial_registration","السجل التجاري",false,"ltr")}{field("phone","رقم الجوال",false,"ltr")}{field("email","البريد الإلكتروني",false,"ltr")}</section>
+      <section className="space-y-3 border-t pt-4"><div><h3 className="font-semibold">العنوان الوطني السعودي</h3><p className="text-xs text-muted-foreground">مطلوب لإصدار فاتورة ضريبية B2B صحيحة.</p></div><div className="grid gap-4 sm:grid-cols-2">{field("city","المدينة",true)}{field("district","الحي",true)}{field("street","اسم الشارع",true)}{field("building_number","رقم المبنى",true,"ltr")}{field("postal_code","الرمز البريدي",true,"ltr")}{field("additional_number","الرقم الإضافي",false,"ltr")}{field("short_address","العنوان المختصر",false,"ltr")}</div></section>
+      <DialogFooter className="gap-2"><Button type="button" variant="outline" onClick={onClose}>إلغاء</Button><Button type="submit" loading={form.formState.isSubmitting}>حفظ العميل</Button></DialogFooter></form>
+  </DialogContent></Dialog>
 }

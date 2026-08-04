@@ -98,6 +98,9 @@ CREATE TABLE organizations (
   tax_code TEXT NOT NULL DEFAULT 'S' CHECK (tax_code = 'S'),
   prices_include_tax BOOLEAN,
   retention_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  invoice_default_notes TEXT, quotation_default_notes TEXT,
+  receipt_default_notes TEXT, receipt_default_phrase TEXT,
+  document_settings_version INTEGER NOT NULL DEFAULT 1,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   deleted_at TIMESTAMPTZ,
@@ -162,6 +165,9 @@ CREATE TABLE customers (
   organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   name TEXT NOT NULL, vat_number TEXT, commercial_registration TEXT,
   phone TEXT, phone_e164 TEXT, email TEXT, address TEXT, notes TEXT,
+  country TEXT NOT NULL DEFAULT 'Saudi Arabia', country_code TEXT NOT NULL DEFAULT 'SA',
+  city TEXT, district TEXT, street TEXT, building_number TEXT, postal_code TEXT,
+  additional_number TEXT, short_address TEXT,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), deleted_at TIMESTAMPTZ,
   sync_version INTEGER NOT NULL DEFAULT 1 CHECK (sync_version > 0)
@@ -205,7 +211,18 @@ CREATE TABLE documents (
   collected_total NUMERIC(18,4) NOT NULL DEFAULT 0, due_total NUMERIC(18,4) NOT NULL DEFAULT 0,
   show_bank_details BOOLEAN NOT NULL DEFAULT FALSE,
   show_stamp BOOLEAN NOT NULL DEFAULT FALSE, show_signature BOOLEAN NOT NULL DEFAULT FALSE,
-  notes TEXT, pdf_url TEXT,
+  notes TEXT, pdf_url TEXT, uuid TEXT, issue_time TIME,
+  organization_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  customer_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  bank_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  appearance_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  payment_details JSONB NOT NULL DEFAULT '[]'::jsonb,
+  reference_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  source_document_id TEXT REFERENCES documents(id) ON DELETE RESTRICT,
+  correction_reason TEXT,
+  zatca_status TEXT NOT NULL DEFAULT 'not_submitted', zatca_icv BIGINT,
+  zatca_pih TEXT, zatca_invoice_hash TEXT, zatca_qr_payload TEXT,
+  zatca_response JSONB NOT NULL DEFAULT '{}'::jsonb, zatca_cleared_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), deleted_at TIMESTAMPTZ,
   sync_version INTEGER NOT NULL DEFAULT 1 CHECK (sync_version > 0),
   UNIQUE (organization_id, type, number)
@@ -235,6 +252,17 @@ CREATE TABLE document_terms (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
   text TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE zatca_connections (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  organization_id TEXT NOT NULL UNIQUE REFERENCES organizations(id) ON DELETE CASCADE,
+  environment TEXT NOT NULL DEFAULT 'sandbox' CHECK (environment IN ('sandbox','simulation','production')),
+  status TEXT NOT NULL DEFAULT 'not_configured' CHECK (status IN ('not_configured','configured','suspended','expired')),
+  egs_serial_number TEXT, encrypted_private_key TEXT, encrypted_certificate TEXT, encrypted_secret TEXT,
+  certificate_expires_at TIMESTAMPTZ, last_invoice_hash TEXT,
+  next_icv BIGINT NOT NULL DEFAULT 1 CHECK (next_icv > 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE expense_categories (
@@ -307,6 +335,7 @@ CREATE INDEX subscription_events_org_idx ON subscription_events(organization_id,
 CREATE INDEX customer_org_idx ON customers(organization_id) WHERE deleted_at IS NULL;
 CREATE INDEX supplier_org_idx ON suppliers(organization_id) WHERE deleted_at IS NULL;
 CREATE INDEX document_org_date_idx ON documents(organization_id, issue_date DESC) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX documents_org_uuid_idx ON documents(organization_id, uuid) WHERE uuid IS NOT NULL;
 CREATE INDEX purchase_org_date_idx ON purchase_invoices(organization_id, invoice_date DESC) WHERE deleted_at IS NULL;
 CREATE INDEX expense_org_date_idx ON expenses(organization_id, expense_date DESC) WHERE deleted_at IS NULL;
 CREATE INDEX sync_log_org_idx ON sync_log(organization_id, id);

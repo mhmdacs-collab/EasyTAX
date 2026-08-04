@@ -58,6 +58,15 @@ export interface Customer {
   phone?: string;
   email?: string;
   address?: string;
+  country?: string;
+  country_code?: string;
+  city?: string;
+  district?: string;
+  street?: string;
+  building_number?: string;
+  postal_code?: string;
+  additional_number?: string;
+  short_address?: string;
   notes?: string;
   is_active: boolean;
   created_at: string;
