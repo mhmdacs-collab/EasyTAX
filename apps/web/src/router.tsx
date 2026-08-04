@@ -5,6 +5,9 @@ import { authClient } from "@/lib/auth/client"
 import { AppLayout } from "@/layouts/AppLayout"
 import { ensureTenantContextForUser } from "@/lib/session/customerSession"
 import { Spinner } from "@/shared/components/ui/spinner"
+import { useAuth } from "@/features/auth/hooks/useAuth"
+import { useSubscriptionStatus } from "@/lib/subscription/useSubscriptionStatus"
+import { BlockedSubscriptionPage } from "@/features/subscription/BlockedSubscriptionPage"
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
 const rootRoute = createRootRoute({
@@ -34,6 +37,38 @@ const registerRoute = createRoute({
 // ─── Onboarding (requires auth, no org yet) ───────────────────────────────────
 const OnboardingPage = lazy(() => import("@/features/onboarding/pages/OnboardingPage"))
 
+/** Wraps onboarding with a subscription guard so suspended users never see the form */
+function OnboardingGuarded() {
+  const { user } = useAuth()
+  const { data: subscription, isLoading } = useSubscriptionStatus(user?.id)
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center" dir="rtl">
+        <div className="flex flex-col items-center gap-3 text-muted-foreground">
+          <Spinner size="lg" />
+          <p className="text-sm">جارٍ التحقق من الاشتراك…</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (subscription && subscription.effective_status !== "active") {
+    return (
+      <BlockedSubscriptionPage
+        status={subscription.effective_status}
+        vatNumber={subscription.vat_number}
+      />
+    )
+  }
+
+  return (
+    <Suspense fallback={<div className="flex h-screen items-center justify-center"><Spinner size="lg" /></div>}>
+      <OnboardingPage />
+    </Suspense>
+  )
+}
+
 const onboardingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/onboarding",
@@ -44,7 +79,7 @@ const onboardingRoute = createRoute({
     if (hasOrganization) return redirect({ to: "/" })
     return
   },
-  component: OnboardingPage,
+  component: OnboardingGuarded,
 })
 
 // ─── Protected app shell ──────────────────────────────────────────────────────
