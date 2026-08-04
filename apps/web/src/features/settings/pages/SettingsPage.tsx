@@ -101,6 +101,22 @@ export default function SettingsPage() {
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="organization_id">معرف المنشأة</Label>
+              <Input
+                id="organization_id"
+                value={org.id}
+                readOnly
+                dir="ltr"
+                tabIndex={-1}
+                className="cursor-not-allowed bg-muted font-mono"
+                aria-describedby="organization_id_help"
+              />
+              <p id="organization_id_help" className="text-xs text-muted-foreground">
+                معرف نظام ثابت يُنشأ تلقائيًا ولا يمكن تعديله.
+              </p>
+            </div>
+
+            <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="business_name">اسم المنشأة *</Label>
               <Input id="business_name" placeholder="شركة النجوم للتجارة" {...form.register("business_name")} />
               {form.formState.errors.business_name && (

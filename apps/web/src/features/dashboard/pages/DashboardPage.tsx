@@ -57,7 +57,14 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-bold">
             مرحباً{user?.name ? `، ${user.name}` : ""}
           </h1>
-          {org && <p className="mt-0.5 text-sm text-muted-foreground">{org.business_name}</p>}
+          {org && (
+            <div className="mt-0.5 space-y-0.5">
+              <p className="text-sm text-muted-foreground">{org.business_name}</p>
+              <p className="text-xs text-muted-foreground" dir="ltr">
+                Organization ID: <span className="font-mono select-all">{org.id}</span>
+              </p>
+            </div>
+          )}
         </div>
         <Link to="/documents/new">
           <Button className="gap-2">
