@@ -45,3 +45,42 @@ export async function fetchCurrentSubscription(): Promise<CurrentSubscription> {
 
   return response.json() as Promise<CurrentSubscription>
 }
+
+
+export type CustomerBootstrap = {
+  user: {
+    id: string
+    email: string
+    name: string
+    role: string
+  }
+  organization: {
+    id: string
+    business_name: string
+    vat_number: string
+    phone: string | null
+    email: string | null
+    status: string
+  }
+  subscription: {
+    id: string | null
+    plan: string | null
+    status: string | null
+    effective_status: EffectiveStatus
+    starts_at: string | null
+    expires_at: string | null
+  }
+}
+
+export async function fetchCustomerBootstrap(): Promise<CustomerBootstrap> {
+  const response = await fetch(`${API_URL}/api/v1/bootstrap/me`, {
+    credentials: "include",
+    cache: "no-store",
+  })
+
+  if (!response.ok) {
+    throw new Error("تعذر تحميل بيانات المنشأة")
+  }
+
+  return response.json() as Promise<CustomerBootstrap>
+}
