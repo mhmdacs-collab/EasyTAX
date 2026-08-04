@@ -92,6 +92,12 @@ export type BootstrapOrganization = {
   vat_number: string
   phone: string | null
   email: string | null
+  commercial_registration: string | null
+  city: string | null
+  district: string | null
+  street: string | null
+  building_number: string | null
+  postal_code: string | null
 }
 
 export async function hydrateOrganizationFromBootstrap(
@@ -118,6 +124,12 @@ export async function hydrateOrganizationFromBootstrap(
     vat_number: organization.vat_number,
     phone: organization.phone ?? undefined,
     email: organization.email ?? undefined,
+    commercial_registration: organization.commercial_registration ?? undefined,
+    city: organization.city ?? undefined,
+    district: organization.district ?? undefined,
+    street: organization.street ?? undefined,
+    building_number: organization.building_number ?? undefined,
+    postal_code: organization.postal_code ?? undefined,
     subscription_status: "active",
     created_at: now,
     updated_at: now,

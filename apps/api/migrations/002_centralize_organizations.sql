@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS organizations (
   phone TEXT,
   email TEXT,
   building_number TEXT,
+  onboarding_completed_at TIMESTAMPTZ,
   status TEXT NOT NULL DEFAULT 'active'
     CHECK (status IN ('active', 'inactive', 'suspended')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

@@ -72,6 +72,10 @@ export function LoginForm() {
       }
       try {
         const bootstrap = await fetchCustomerBootstrap()
+        if (!bootstrap.organization.onboarding_completed_at) {
+          await navigate({ to: "/onboarding" })
+          return
+        }
         await hydrateOrganizationFromBootstrap(bootstrap.organization, userId)
         await navigate({ to: "/" })
       } catch {

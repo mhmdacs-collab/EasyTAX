@@ -60,6 +60,13 @@ export type CustomerBootstrap = {
     vat_number: string
     phone: string | null
     email: string | null
+    commercial_registration: string | null
+    city: string | null
+    district: string | null
+    street: string | null
+    building_number: string | null
+    postal_code: string | null
+    onboarding_completed_at: string | null
     status: string
   }
   subscription: {
@@ -83,4 +90,26 @@ export async function fetchCustomerBootstrap(): Promise<CustomerBootstrap> {
   }
 
   return response.json() as Promise<CustomerBootstrap>
+}
+
+export type CompleteOnboardingInput = {
+  commercial_registration?: string
+  phone?: string
+  email?: string
+  city?: string
+  district?: string
+  street?: string
+  building_number?: string
+  postal_code?: string
+}
+
+export async function completeCustomerOnboarding(input: CompleteOnboardingInput): Promise<void> {
+  const response = await fetch(`${API_URL}/api/v1/bootstrap/onboarding-complete`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+
+  if (!response.ok) throw new Error("تعذر حفظ اكتمال إعداد المنشأة")
 }

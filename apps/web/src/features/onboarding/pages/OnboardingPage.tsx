@@ -7,7 +7,7 @@ import { Step3Confirm } from "../components/Step3Confirm"
 import { Spinner } from "@/shared/components/ui/spinner"
 import { db } from "@/lib/db"
 import { authClient } from "@/lib/auth/client"
-import { fetchCurrentSubscription } from "@/lib/subscription/api"
+import { completeCustomerOnboarding, fetchCustomerBootstrap, fetchCurrentSubscription } from "@/lib/subscription/api"
 import { bindOrganizationToAuthUser } from "@/lib/session/customerSession"
 import { generateId } from "@/shared/utils"
 import type { Organization } from "@/lib/db"
@@ -32,11 +32,33 @@ export default function OnboardingPage() {
   const [step, setStep] = useState(0)
   const [data, setData] = useState<Partial<OnboardingData>>({})
   const [lockedFields, setLockedFields] = useState<Array<"business_name" | "vat_number">>([])
+  const [centralOrganizationId, setCentralOrganizationId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     const fetchSubscription = async () => {
+      try {
+        const bootstrap = await fetchCustomerBootstrap()
+        setCentralOrganizationId(bootstrap.organization.id)
+        setData({
+          business_name: bootstrap.organization.business_name,
+          vat_number: bootstrap.organization.vat_number,
+          commercial_registration: bootstrap.organization.commercial_registration ?? undefined,
+          phone: bootstrap.organization.phone ?? undefined,
+          email: bootstrap.organization.email ?? undefined,
+          city: bootstrap.organization.city ?? undefined,
+          district: bootstrap.organization.district ?? undefined,
+          street: bootstrap.organization.street ?? undefined,
+          building_number: bootstrap.organization.building_number ?? undefined,
+          postal_code: bootstrap.organization.postal_code ?? undefined,
+        })
+        setLockedFields(["business_name", "vat_number"])
+        setLoading(false)
+        return
+      } catch {
+        // Legacy accounts fall back to the subscription endpoint.
+      }
       try {
         const json = await fetchCurrentSubscription()
         if (json.subscription) {
@@ -76,7 +98,7 @@ export default function OnboardingPage() {
         throw new Error("غير مصرح")
       }
       const org: Organization = {
-        id: generateId(),
+        id: centralOrganizationId ?? generateId(),
         auth_user_id: authUserId,
         business_name: data.business_name ?? "",
         vat_number: data.vat_number ?? "",
@@ -94,7 +116,19 @@ export default function OnboardingPage() {
         sync_status: "pending",
         version: 1,
       }
-      await db.organizations.add(org)
+      if (centralOrganizationId) {
+        await completeCustomerOnboarding({
+          commercial_registration: data.commercial_registration,
+          phone: data.phone,
+          email: data.email,
+          city: data.city,
+          district: data.district,
+          street: data.street,
+          building_number: data.building_number,
+          postal_code: data.postal_code,
+        })
+      }
+      await db.organizations.put(org)
       await bindOrganizationToAuthUser(org.id, authUserId)
       await navigate({ to: "/" })
     } catch (err) {
