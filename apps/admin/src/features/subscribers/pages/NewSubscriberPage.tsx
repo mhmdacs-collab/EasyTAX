@@ -7,6 +7,8 @@ type CreateSubscriptionResponse = {
   ok: true
   data: {
     message: string
+    login: { vat_number: string; email: string }
+    organization: { id: string; business_name: string; vat_number: string }
     subscription: unknown
   }
 }
@@ -24,6 +26,8 @@ export default function NewSubscriberPage() {
   const [businessName, setBusinessName] = useState("")
   const [vatNumber, setVatNumber] = useState("")
   const [phone, setPhone] = useState("")
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
   const [plan, setPlan] = useState("basic")
   const [durationDays, setDurationDays] = useState<30 | 90 | 180 | 365>(30)
   const [loading, setLoading] = useState(false)
@@ -45,6 +49,10 @@ export default function NewSubscriberPage() {
       setError("رقم الجوال غير صالح")
       return
     }
+    if (password.length < 8) {
+      setError("كلمة المرور يجب أن تكون 8 أحرف على الأقل")
+      return
+    }
 
     setLoading(true)
     try {
@@ -54,6 +62,8 @@ export default function NewSubscriberPage() {
           business_name: businessName.trim(),
           vat_number: normalizedVat,
           phone: normalizedPhone,
+          email: email.trim() || undefined,
+          password,
           plan: plan.trim(),
           duration_days: durationDays,
         }),
@@ -107,6 +117,37 @@ export default function NewSubscriberPage() {
             dir="ltr"
             required
           />
+        </div>
+
+        <div className="space-y-2">
+          <label htmlFor="email" className="text-sm font-medium">البريد الإلكتروني (اختياري)</label>
+          <input
+            id="email"
+            type="email"
+            value={email}
+            onChange={(event) => { setEmail(event.target.value) }}
+            className="w-full rounded-md border bg-background px-3 py-2 outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
+            dir="ltr"
+            autoComplete="email"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label htmlFor="password" className="text-sm font-medium">كلمة مرور العميل</label>
+          <input
+            id="password"
+            type="password"
+            value={password}
+            onChange={(event) => { setPassword(event.target.value) }}
+            className="w-full rounded-md border bg-background px-3 py-2 outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
+            dir="ltr"
+            minLength={8}
+            autoComplete="new-password"
+            required
+          />
+          <p className="text-xs text-muted-foreground">
+            سيستخدمها العميل مع الرقم الضريبي لتسجيل الدخول مباشرة.
+          </p>
         </div>
 
         <div className="space-y-2">
