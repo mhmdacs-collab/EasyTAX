@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { auth } from "./lib/auth";
+import { sql } from "./lib/db";
 import { syncRouter } from "./routes/sync";
 import { subscriptionRouter } from "./routes/subscription";
 import { adminRouter } from "./routes/admin";
@@ -48,7 +49,49 @@ app.get("/health", (c) => {
 });
 
 // ─── Auth Routes (Better Auth) ────────────────────────────────────────────────
-app.on(["GET", "POST"], "/api/auth/**", (c) => auth.handler(c.req.raw));
+app.on(["GET", "POST"], "/api/auth/**", async (c) => {
+  const isEmailSignIn = c.req.method === "POST" && c.req.path.endsWith("/sign-in/email");
+  let loginEmail: string | null = null;
+
+  if (isEmailSignIn) {
+    try {
+      const body = await c.req.raw.clone().json() as { email?: unknown };
+      loginEmail = typeof body.email === "string" ? body.email.toLowerCase() : null;
+    } catch {
+      loginEmail = null;
+    }
+
+    if (loginEmail) {
+      const users = await sql`
+        SELECT status, deleted_at
+        FROM "user"
+        WHERE LOWER(email) = ${loginEmail}
+        LIMIT 1
+      `;
+      const user = users[0] as { status: string; deleted_at: string | null } | undefined;
+      if (user && (user.status !== "active" || user.deleted_at !== null)) {
+        return c.json({
+          code: "ACCOUNT_DISABLED",
+          message: "الحساب موقوف أو محذوف. يرجى التواصل مع الإدارة.",
+        }, 403);
+      }
+    }
+  }
+
+  const response = await auth.handler(c.req.raw);
+
+  if (isEmailSignIn && loginEmail && response.ok) {
+    await sql`
+      UPDATE "user"
+      SET last_login_at = NOW(), updated_at = NOW()
+      WHERE LOWER(email) = ${loginEmail}
+        AND status = 'active'
+        AND deleted_at IS NULL
+    `;
+  }
+
+  return response;
+});
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
 app.get("/api/v1/ping", (c) => c.json({ message: "pong" }));
