@@ -24,18 +24,11 @@ const rootRoute = createRootRoute({
 
 // ─── Public pages ─────────────────────────────────────────────────────────────
 const LoginPage = lazy(() => import("@/features/auth/pages/LoginPage"))
-const RegisterPage = lazy(() => import("@/features/auth/pages/SubscriptionActivationPage"))
 
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
   component: LoginPage,
-})
-
-const registerRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/register",
-  component: RegisterPage,
 })
 
 // ─── Onboarding (requires auth, no org yet) ───────────────────────────────────
@@ -173,7 +166,6 @@ const settingsRoute = createRoute({ getParentRoute: () => appRoute, path: "/sett
 // ─── Tree ─────────────────────────────────────────────────────────────────────
 const routeTree = rootRoute.addChildren([
   loginRoute,
-  registerRoute,
   onboardingRoute,
   appRoute.addChildren([
     dashboardRoute,

@@ -66,6 +66,7 @@ export type CustomerBootstrap = {
     street: string | null
     building_number: string | null
     postal_code: string | null
+    short_address: string | null
     onboarding_completed_at: string | null
     status: string
   }
@@ -101,6 +102,7 @@ export type CompleteOnboardingInput = {
   street?: string
   building_number?: string
   postal_code?: string
+  short_address?: string
 }
 
 export async function completeCustomerOnboarding(input: CompleteOnboardingInput): Promise<void> {

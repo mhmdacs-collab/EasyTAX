@@ -26,26 +26,24 @@ bootstrapRouter.get("/me", async (c) => {
       o.street,
       o.building_number,
       o.postal_code,
+      o.short_address,
       o.onboarding_completed_at,
       o.status AS organization_status,
-      s.id AS subscription_id,
-      s.plan,
-      s.status AS subscription_status,
-      s.starts_at,
-      s.expires_at,
+      o.id AS subscription_id,
+      o.plan,
+      o.status AS subscription_status,
+      o.subscription_starts_at AS starts_at,
+      o.subscription_expires_at AS expires_at,
       CASE
-        WHEN s.status = 'suspended' THEN 'suspended'
-        WHEN s.status = 'inactive' THEN 'inactive'
-        WHEN s.expires_at IS NOT NULL AND s.expires_at < NOW() THEN 'expired'
-        WHEN s.status = 'active' THEN 'active'
+        WHEN o.status = 'suspended' THEN 'suspended'
+        WHEN o.status = 'inactive' THEN 'inactive'
+        WHEN o.subscription_expires_at < NOW() THEN 'expired'
+        WHEN o.status = 'active' THEN 'active'
         ELSE 'inactive'
       END AS effective_status
     FROM organizations o
-    LEFT JOIN subscriptions s
-      ON s.organization_id = o.id
     WHERE o.user_id = ${session.user.id as string}
       AND o.deleted_at IS NULL
-    ORDER BY s.created_at DESC NULLS LAST
     LIMIT 1
   `
 
@@ -65,6 +63,7 @@ bootstrapRouter.get("/me", async (c) => {
     street: string | null
     building_number: string | null
     postal_code: string | null
+    short_address: string | null
     onboarding_completed_at: string | null
     organization_status: string
     subscription_id: string | null
@@ -94,6 +93,7 @@ bootstrapRouter.get("/me", async (c) => {
       street: row.street,
       building_number: row.building_number,
       postal_code: row.postal_code,
+      short_address: row.short_address,
       onboarding_completed_at: row.onboarding_completed_at,
       status: row.organization_status,
     },
@@ -117,6 +117,7 @@ const completeOnboardingSchema = z.object({
   street: z.string().optional(),
   building_number: z.string().optional(),
   postal_code: z.string().optional(),
+  short_address: z.string().optional(),
 })
 
 bootstrapRouter.post("/onboarding-complete", zValidator("json", completeOnboardingSchema), async (c) => {
@@ -136,6 +137,7 @@ bootstrapRouter.post("/onboarding-complete", zValidator("json", completeOnboardi
       street = ${body.street || null},
       building_number = ${body.building_number || null},
       postal_code = ${body.postal_code || null},
+      short_address = ${body.short_address || null},
       onboarding_completed_at = COALESCE(onboarding_completed_at, NOW()),
       updated_at = NOW()
     WHERE user_id = ${session.user.id as string}

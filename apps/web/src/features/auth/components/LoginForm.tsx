@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useForm, type Resolver } from "react-hook-form"
 import { z } from "zod"
-import { Link, useNavigate } from "@tanstack/react-router"
+import { useNavigate } from "@tanstack/react-router"
 import { Button } from "@/shared/components/ui/button"
 import { Input } from "@/shared/components/ui/input"
 import { Label } from "@/shared/components/ui/label"
@@ -125,12 +125,6 @@ export function LoginForm() {
         تسجيل الدخول
       </Button>
 
-      <p className="text-center text-sm text-muted-foreground">
-        ليس لديك حساب؟{" "}
-        <Link to="/register" className="font-medium text-primary hover:underline">
-          تفعيل الاشتراك
-        </Link>
-      </p>
     </form>
   )
 }

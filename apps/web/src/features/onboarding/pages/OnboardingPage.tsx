@@ -23,6 +23,7 @@ export interface OnboardingData {
   street?: string
   building_number?: string
   postal_code?: string
+  short_address?: string
   phone?: string
   email?: string
 }
@@ -52,6 +53,7 @@ export default function OnboardingPage() {
           street: bootstrap.organization.street ?? undefined,
           building_number: bootstrap.organization.building_number ?? undefined,
           postal_code: bootstrap.organization.postal_code ?? undefined,
+          short_address: bootstrap.organization.short_address ?? undefined,
         })
         setLockedFields(["business_name", "vat_number"])
         setLoading(false)
@@ -83,7 +85,7 @@ export default function OnboardingPage() {
     setStep(1)
   }
 
-  const handleStep2 = (values: Pick<OnboardingData, "city" | "district" | "street" | "building_number" | "postal_code" | "phone" | "email">) => {
+  const handleStep2 = (values: Pick<OnboardingData, "city" | "district" | "street" | "building_number" | "postal_code" | "short_address" | "phone" | "email">) => {
     setData((prev) => ({ ...prev, ...values }))
     setStep(2)
   }
@@ -108,6 +110,7 @@ export default function OnboardingPage() {
         street: data.street,
         building_number: data.building_number,
         postal_code: data.postal_code,
+        short_address: data.short_address,
         phone: data.phone,
         email: data.email,
         subscription_status: "active",
@@ -126,6 +129,7 @@ export default function OnboardingPage() {
           street: data.street,
           building_number: data.building_number,
           postal_code: data.postal_code,
+          short_address: data.short_address,
         })
       }
       await db.organizations.put(org)

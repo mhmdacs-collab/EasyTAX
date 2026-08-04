@@ -21,6 +21,7 @@ export interface Organization {
   street?: string;
   building_number?: string;
   postal_code?: string;
+  short_address?: string;
   logo_url?: string;
   signature_url?: string;
   stamp_url?: string;

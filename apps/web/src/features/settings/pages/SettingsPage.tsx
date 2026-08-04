@@ -22,6 +22,7 @@ const schema = z.object({
   street: z.string().optional(),
   building_number: z.string().optional(),
   postal_code: z.string().optional(),
+  short_address: z.string().optional(),
 })
 
 type FormData = z.infer<typeof schema>
@@ -42,6 +43,7 @@ export default function SettingsPage() {
       street: "",
       building_number: "",
       postal_code: "",
+      short_address: "",
     },
   })
 
@@ -59,6 +61,7 @@ export default function SettingsPage() {
         street: org.street ?? "",
         building_number: org.building_number ?? "",
         postal_code: org.postal_code ?? "",
+        short_address: org.short_address ?? "",
       })
     }
   }, [org])
@@ -180,6 +183,10 @@ export default function SettingsPage() {
             <div className="space-y-1.5">
               <Label htmlFor="postal_code">الرمز البريدي</Label>
               <Input id="postal_code" placeholder="12345" dir="ltr" {...form.register("postal_code")} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="short_address">العنوان الوطني المختصر (اختياري)</Label>
+              <Input id="short_address" placeholder="مثال: RRRD2929" dir="ltr" {...form.register("short_address")} />
             </div>
           </div>
         </section>

@@ -98,6 +98,7 @@ export type BootstrapOrganization = {
   street: string | null
   building_number: string | null
   postal_code: string | null
+  short_address: string | null
 }
 
 export async function hydrateOrganizationFromBootstrap(
@@ -130,6 +131,7 @@ export async function hydrateOrganizationFromBootstrap(
     street: organization.street ?? undefined,
     building_number: organization.building_number ?? undefined,
     postal_code: organization.postal_code ?? undefined,
+    short_address: organization.short_address ?? undefined,
     subscription_status: "active",
     created_at: now,
     updated_at: now,
