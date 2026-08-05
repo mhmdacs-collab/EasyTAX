@@ -51,6 +51,9 @@ export default defineConfig({
         ],
       },
       workbox: {
+        importScripts: ["sw-update.js?v=1"],
+        skipWaiting: true,
+        clientsClaim: true,
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
         navigateFallback: "index.html",
         navigateFallbackDenylist: [/^\/api/],
