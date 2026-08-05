@@ -4,6 +4,7 @@ import { ArrowLeft, Clock, FileText, Plus, TrendingUp, Users } from "lucide-reac
 import { useAuth } from "@/features/auth/hooks/useAuth"
 import { DocumentStatusBadge } from "@/features/documents/components/DocumentStatusBadge"
 import { fetchSettings, listCustomers, listDocuments, type CentralDocument, type SettingsPayload } from "@/lib/platform/api"
+import { fetchSubscriptionStatus, type SubscriptionStatus } from "@/lib/subscription/api"
 import { Badge } from "@/shared/components/ui/badge"
 import { Button } from "@/shared/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card"
@@ -13,8 +14,6 @@ import { formatCurrency, formatDate } from "@/shared/utils"
 type OrganizationSummary = {
   id?: string
   business_name?: string
-  status?: string
-  subscription_expires_at?: string
 }
 
 export default function DashboardPage() {
@@ -22,19 +21,22 @@ export default function DashboardPage() {
   const [documents, setDocuments] = useState<CentralDocument[]>()
   const [customerCount, setCustomerCount] = useState<number>()
   const [settings, setSettings] = useState<SettingsPayload>()
+  const [subscription, setSubscription] = useState<SubscriptionStatus>()
   const [error, setError] = useState("")
 
   const loadDashboard = useCallback(async () => {
     setError("")
     try {
-      const [documentResult, customerResult, settingsResult] = await Promise.all([
+      const [documentResult, customerResult, settingsResult, subscriptionResult] = await Promise.all([
         listDocuments(),
         listCustomers(),
         fetchSettings(),
+        fetchSubscriptionStatus(),
       ])
       setDocuments(documentResult.documents)
       setCustomerCount(customerResult.customers.length)
       setSettings(settingsResult)
+      setSubscription(subscriptionResult)
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "تعذر تحميل بيانات لوحة التحكم")
     }
@@ -58,7 +60,7 @@ export default function DashboardPage() {
 
   const organization = settings?.organization as OrganizationSummary | undefined
   const recentDocuments = documents?.slice(0, 5)
-  const loading = !documents || customerCount === undefined || !settings
+  const loading = !documents || customerCount === undefined || !settings || !subscription
 
   if (error) {
     return <div className="m-6 rounded-lg border border-destructive/40 bg-destructive/5 p-6 text-center"><p className="font-medium text-destructive">{error}</p><Button variant="outline" className="mt-4" onClick={() => { void loadDashboard() }}>إعادة المحاولة</Button></div>
@@ -78,7 +80,7 @@ export default function DashboardPage() {
         <StatCard title="إجمالي الفواتير الصادرة" icon={<TrendingUp className="size-4 text-green-500" />} loading={loading} value={formatCurrency(stats?.totalRevenue ?? 0)} detail={`${formatCurrency(stats?.monthRevenue ?? 0)} هذا الشهر`} />
         <StatCard title="الفواتير الصادرة" icon={<FileText className="size-4 text-primary" />} loading={loading} value={String(stats?.issuedCount ?? 0)} detail={`${stats?.draftCount ?? 0} مسودة`} />
         <StatCard title="العملاء" icon={<Users className="size-4 text-blue-500" />} loading={loading} value={String(customerCount ?? 0)} detail="عميل مسجل" />
-        <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">الاشتراك</CardTitle><Clock className="size-4 text-muted-foreground" /></CardHeader><CardContent>{loading ? <Skeleton className="h-7 w-20" /> : <><Badge variant={organization?.status === "active" ? "success" : "destructive"} className="text-sm">{organization?.status === "active" ? "فعّال" : "متوقف"}</Badge><p className="mt-2 text-xs text-muted-foreground">{organization?.subscription_expires_at ? `ينتهي ${formatDate(organization.subscription_expires_at)}` : "—"}</p></>}</CardContent></Card>
+        <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">الاشتراك</CardTitle><Clock className="size-4 text-muted-foreground" /></CardHeader><CardContent>{!subscription ? <><Skeleton className="h-7 w-20" /><Skeleton className="mt-2 h-3 w-28" /></> : <><Badge variant={subscription.effective_status === "active" ? "success" : "destructive"} className="text-sm">{subscriptionLabel(subscription.effective_status)}</Badge><p className="mt-2 text-xs text-muted-foreground">{subscription.expires_at ? `ينتهي ${formatDate(subscription.expires_at)}` : "لا يوجد تاريخ انتهاء"}</p></>}</CardContent></Card>
       </div>
 
       <section>
@@ -109,4 +111,11 @@ function LoadingRows() {
 
 function EmptyDocuments() {
   return <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed py-16 text-center"><FileText className="size-12 text-muted-foreground/30" /><div><p className="font-semibold">لا توجد فواتير بعد</p><p className="mt-1 text-sm text-muted-foreground">ابدأ بإنشاء أول فاتورة ضريبية</p></div><Button asChild className="gap-2"><Link to="/documents/new"><Plus className="size-4" />إنشاء فاتورة</Link></Button></div>
+}
+
+function subscriptionLabel(status: SubscriptionStatus["effective_status"]) {
+  if (status === "active") return "فعّال"
+  if (status === "expired") return "منتهي"
+  if (status === "suspended") return "موقوف"
+  return "غير فعّال"
 }
