@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react"
 import { Link, useParams } from "@tanstack/react-router"
-import { Pencil, Printer } from "lucide-react"
+import { Mail, MessageCircle, Pencil, Printer } from "lucide-react"
 import { fetchDocument, type CentralDocument } from "@/lib/platform/api"
+import { ZatcaQrCode } from "@/lib/zatca/ZatcaQrCode"
 import { Button } from "@/shared/components/ui/button"
 import { Separator } from "@/shared/components/ui/separator"
 import { formatCurrency, formatDate } from "@/shared/utils"
@@ -35,12 +36,16 @@ export function DocumentViewPage() {
   const hasUnits = document.items?.some((item) => Boolean(item.unit?.trim())) ?? false
   const sellerAddress = [seller.street, seller.building_number, seller.district, seller.city, seller.postal_code].filter(Boolean).join("، ")
   const customerAddress = [customer.street, customer.building_number, customer.district, customer.city, customer.postal_code].filter(Boolean).join("، ")
+  const shareText = document.status === "issued" ? `فاتورة ضريبية رقم ${document.number} بقيمة ${formatCurrency(Number(document.total))} من ${seller.business_name ?? "EasyTAX"}.` : ""
+  const emailUrl = customer.email ? `mailto:${customer.email}?subject=${encodeURIComponent(`فاتورة ضريبية رقم ${document.number}`)}&body=${encodeURIComponent(shareText)}` : ""
+  const whatsappPhone = customer.phone?.replace(/\D/g, "").replace(/^0/, "966") ?? ""
+  const whatsappUrl = whatsappPhone ? `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(shareText)}` : ""
 
   return (
     <div className="min-h-screen bg-muted/20 p-3 sm:p-6" dir="rtl">
       <div className="mx-auto mb-3 flex max-w-4xl items-center justify-between print:hidden">
         <Link to="/documents" className="text-sm text-muted-foreground">العودة للفواتير</Link>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           {document.status === "draft" ? (
             <Button asChild variant="outline" className="gap-2">
               <Link to="/documents/$id/edit" params={{ id }}><Pencil className="size-4" />تعديل المسودة</Link>
@@ -49,10 +54,12 @@ export function DocumentViewPage() {
           <Button variant="outline" className="gap-2" onClick={() => { window.print() }}>
             <Printer className="size-4" />طباعة / PDF
           </Button>
+          {document.status === "issued" && customer.email ? <Button asChild variant="outline" className="gap-2"><a href={emailUrl}><Mail className="size-4" />إرسال بالبريد</a></Button> : null}
+          {document.status === "issued" && whatsappPhone ? <Button asChild variant="outline" className="gap-2"><a href={whatsappUrl} target="_blank" rel="noreferrer"><MessageCircle className="size-4" />واتساب</a></Button> : null}
         </div>
       </div>
 
-      <article className="mx-auto max-w-4xl rounded-xl border bg-white p-5 shadow-sm sm:p-8 print:border-0 print:shadow-none">
+      <article data-print-area className="mx-auto max-w-4xl rounded-xl border bg-white p-5 shadow-sm sm:p-8 print:border-0 print:shadow-none">
         <header className="flex justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold">فاتورة ضريبية</h1>
@@ -84,6 +91,7 @@ export function DocumentViewPage() {
           <Separator /><Row label="الإجمالي" value={Number(document.total)} bold />
         </div>
 
+        {document.status === "issued" && seller.business_name && seller.vat_number ? <div className="mt-8 flex justify-center border-t pt-6"><ZatcaQrCode sellerName={seller.business_name} vatNumber={seller.vat_number} invoiceDateTime={document.updated_at} totalWithVat={Number(document.total)} vatAmount={Number(document.tax_total)} size={132} /></div> : null}
         {document.reference_data.payment_method ? <Info label="طريقة السداد" value={document.reference_data.payment_method} /> : null}
         {document.show_bank_details && seller.iban ? <Info label="الحساب البنكي" value={[seller.bank_name, seller.bank_account_name, seller.iban].filter(Boolean).join(" · ")} ltr /> : null}
         {document.notes ? <div className="mt-6 border-t pt-4"><p className="font-medium">ملاحظات</p><p className="whitespace-pre-wrap text-sm text-muted-foreground">{document.notes}</p></div> : null}

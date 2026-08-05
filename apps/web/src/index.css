@@ -66,12 +66,16 @@
 
 /* ─── Print styles ─────────────────────────────────────────────────────────── */
 @media print {
-  /* Hide everything except the document card */
-  body > * { display: none !important; }
-  #root > * { display: none !important; }
-
-  /* Show only the invoice print area */
-  .print\:block, [data-print-area] { display: block !important; }
+  body * { visibility: hidden !important; }
+  [data-print-area], [data-print-area] * { visibility: visible !important; }
+  [data-print-area] {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
 
   /* The document card itself */
   .print\:max-w-none { max-width: none !important; }
@@ -105,7 +109,7 @@
     padding: 0 !important;
   }
 
-  .mx-auto.max-w-3xl {
+  [data-print-area] {
     max-width: 100% !important;
     padding: 0 !important;
     border: none !important;
