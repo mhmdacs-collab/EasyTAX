@@ -12,6 +12,9 @@
 function tlvEntry(tag: number, value: string): Uint8Array {
   const enc = new TextEncoder()
   const valueBytes = enc.encode(value)
+  if (valueBytes.length > 255) {
+    throw new Error(`قيمة الحقل ${tag} في QR تتجاوز الحد المسموح`)
+  }
   const result = new Uint8Array(2 + valueBytes.length)
   result[0] = tag
   result[1] = valueBytes.length
@@ -48,12 +51,24 @@ export interface ZatcaQrInput {
 
 /** Returns a base64-encoded TLV string ready to embed in a QR code */
 export function generateZatcaQrString(input: ZatcaQrInput): string {
+  const sellerName = input.sellerName.trim()
+  const vatNumber = input.vatNumber.replace(/\D/g, "")
+  const issuedAt = new Date(input.invoiceDateTime)
+
+  if (!sellerName) throw new Error("اسم البائع مطلوب لإنشاء QR")
+  if (!/^3\d{13}3$/.test(vatNumber)) throw new Error("الرقم الضريبي للبائع يجب أن يكون 15 رقمًا ويبدأ وينتهي بالرقم 3")
+  if (Number.isNaN(issuedAt.getTime())) throw new Error("تاريخ إصدار الفاتورة غير صالح")
+  if (!Number.isFinite(input.totalWithVat) || input.totalWithVat < 0) throw new Error("إجمالي الفاتورة غير صالح")
+  if (!Number.isFinite(input.vatAmount) || input.vatAmount < 0) throw new Error("إجمالي الضريبة غير صالح")
+
   const tlv = concatBuffers([
-    tlvEntry(1, input.sellerName),
-    tlvEntry(2, input.vatNumber),
-    tlvEntry(3, input.invoiceDateTime),
+    tlvEntry(1, sellerName),
+    tlvEntry(2, vatNumber),
+    tlvEntry(3, issuedAt.toISOString().replace(/\.\d{3}Z$/, "Z")),
     tlvEntry(4, input.totalWithVat.toFixed(2)),
     tlvEntry(5, input.vatAmount.toFixed(2)),
   ])
-  return uint8ToBase64(tlv)
+  const encoded = uint8ToBase64(tlv)
+  if (encoded.length > 700) throw new Error("بيانات QR تتجاوز الحد المسموح من الهيئة")
+  return encoded
 }
