@@ -1,5 +1,4 @@
 ﻿import { authClient } from "@/lib/auth/client"
-import { useNavigate } from "@tanstack/react-router"
 
 const WRONG_CREDENTIALS_MESSAGE = "الرقم الضريبي أو كلمة المرور غير صحيحة."
 const SERVER_UNAVAILABLE_MESSAGE = "تعذر الاتصال بالخادم. تحقق من الإنترنت وحاول مرة أخرى."
@@ -88,7 +87,6 @@ export async function signOutCurrentUser() {
 
 export function useAuth() {
   const { data: sessionData, isPending } = authClient.useSession()
-  const navigate = useNavigate()
 
   const signIn = async (email: string, password: string) => {
     await signInWithEmail(email, password)
@@ -101,7 +99,7 @@ export function useAuth() {
 
   const signOut = async () => {
     await signOutCurrentUser()
-    await navigate({ to: "/login" })
+    window.location.replace("/login")
   }
 
   return {
