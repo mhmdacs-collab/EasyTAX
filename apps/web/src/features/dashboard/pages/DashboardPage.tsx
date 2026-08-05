@@ -1,211 +1,112 @@
-﻿import { useMemo } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { Link } from "@tanstack/react-router"
-import { FileText, Users, TrendingUp, Plus, ArrowLeft, Clock } from "lucide-react"
-import { db } from "@/lib/db"
+import { ArrowLeft, Clock, FileText, Plus, TrendingUp, Users } from "lucide-react"
 import { useAuth } from "@/features/auth/hooks/useAuth"
-import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card"
+import { DocumentStatusBadge } from "@/features/documents/components/DocumentStatusBadge"
+import { fetchSettings, listCustomers, listDocuments, type CentralDocument, type SettingsPayload } from "@/lib/platform/api"
 import { Badge } from "@/shared/components/ui/badge"
 import { Button } from "@/shared/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card"
 import { Skeleton } from "@/shared/components/ui/skeleton"
-import { DocumentTypeBadge } from "@/features/documents/components/DocumentTypeBadge"
-import { DocumentStatusBadge } from "@/features/documents/components/DocumentStatusBadge"
 import { formatCurrency, formatDate } from "@/shared/utils"
+
+type OrganizationSummary = {
+  id?: string
+  business_name?: string
+  status?: string
+  subscription_expires_at?: string
+}
 
 export default function DashboardPage() {
   const { user } = useAuth()
-  const org = useLiveQuery(() => db.organizations.toArray().then((r) => r[0]))
+  const [documents, setDocuments] = useState<CentralDocument[]>()
+  const [customerCount, setCustomerCount] = useState<number>()
+  const [settings, setSettings] = useState<SettingsPayload>()
+  const [error, setError] = useState("")
 
-  const customerCount = useLiveQuery(
-    () => db.customers.filter((c) => !c.deleted_at).count()
-  )
+  const loadDashboard = useCallback(async () => {
+    setError("")
+    try {
+      const [documentResult, customerResult, settingsResult] = await Promise.all([
+        listDocuments(),
+        listCustomers(),
+        fetchSettings(),
+      ])
+      setDocuments(documentResult.documents)
+      setCustomerCount(customerResult.customers.length)
+      setSettings(settingsResult)
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "تعذر تحميل بيانات لوحة التحكم")
+    }
+  }, [])
 
-  const allDocs = useLiveQuery(() =>
-    db.documents
-      .orderBy("created_at")
-      .reverse()
-      .toArray()
-      .catch(() => db.documents.orderBy("date").reverse().toArray())
-  )
+  useEffect(() => { void loadDashboard() }, [loadDashboard])
 
   const stats = useMemo(() => {
-    if (!allDocs) return null
+    if (!documents) return null
     const now = new Date()
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
-
-    const issued = allDocs.filter((d) => d.status === "issued")
-    const thisMonth = issued.filter((d) => d.created_at >= startOfMonth)
-    const drafts = allDocs.filter((d) => d.status === "draft")
-
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
+    const issued = documents.filter((document) => document.status === "issued")
+    const thisMonth = issued.filter((document) => new Date(document.issue_date).getTime() >= monthStart)
     return {
-      totalRevenue: issued.reduce((s, d) => s + d.total, 0),
-      monthRevenue: thisMonth.reduce((s, d) => s + d.total, 0),
+      totalRevenue: issued.reduce((sum, document) => sum + Number(document.total), 0),
+      monthRevenue: thisMonth.reduce((sum, document) => sum + Number(document.total), 0),
       issuedCount: issued.length,
-      draftCount: drafts.length,
-      totalDocs: allDocs.length,
+      draftCount: documents.filter((document) => document.status === "draft").length,
     }
-  }, [allDocs])
+  }, [documents])
 
-  const recentDocs = allDocs?.slice(0, 5)
-  const loading = !allDocs || customerCount === undefined
+  const organization = settings?.organization as OrganizationSummary | undefined
+  const recentDocuments = documents?.slice(0, 5)
+  const loading = !documents || customerCount === undefined || !settings
+
+  if (error) {
+    return <div className="m-6 rounded-lg border border-destructive/40 bg-destructive/5 p-6 text-center"><p className="font-medium text-destructive">{error}</p><Button variant="outline" className="mt-4" onClick={() => { void loadDashboard() }}>إعادة المحاولة</Button></div>
+  }
 
   return (
-    <div className="space-y-6 p-6">
-      {/* Header */}
+    <div className="space-y-6 p-4 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">
-            مرحباً{user?.name ? `، ${user.name}` : ""}
-          </h1>
-          {org && (
-            <div className="mt-0.5 space-y-0.5">
-              <p className="text-sm text-muted-foreground">{org.business_name}</p>
-              <p className="text-xs text-muted-foreground" dir="ltr">
-                Organization ID: <span className="font-mono select-all">{org.id}</span>
-              </p>
-            </div>
-          )}
+          <h1 className="text-2xl font-bold">مرحباً{user?.name ? `، ${user.name}` : ""}</h1>
+          {organization ? <div className="mt-0.5 space-y-0.5"><p className="text-sm text-muted-foreground">{organization.business_name}</p><p className="text-xs text-muted-foreground" dir="ltr">Organization ID: <span className="select-all font-mono">{organization.id}</span></p></div> : null}
         </div>
-        <Link to="/documents/new">
-          <Button className="gap-2">
-            <Plus className="size-4" />
-            مستند جديد
-          </Button>
-        </Link>
+        <Button asChild className="gap-2"><Link to="/documents/new"><Plus className="size-4" />فاتورة جديدة</Link></Button>
       </div>
 
-      {/* Stats grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Total Revenue */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">إجمالي الإيرادات</CardTitle>
-            <TrendingUp className="size-4 text-green-500" />
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <Skeleton className="h-7 w-32" />
-            ) : (
-              <div className="text-2xl font-bold tabular-nums">{formatCurrency(stats?.totalRevenue ?? 0)}</div>
-            )}
-            <p className="mt-1 text-xs text-muted-foreground">
-              {loading ? <Skeleton className="h-3 w-20 mt-1" /> : `${formatCurrency(stats?.monthRevenue ?? 0)} هذا الشهر`}
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Issued docs */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">المستندات الصادرة</CardTitle>
-            <FileText className="size-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <Skeleton className="h-7 w-12" />
-            ) : (
-              <div className="text-2xl font-bold">{stats?.issuedCount}</div>
-            )}
-            <p className="mt-1 text-xs text-muted-foreground">
-              {loading ? <Skeleton className="h-3 w-24 mt-1" /> : `${stats?.draftCount ?? 0} مسودة`}
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Customers */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">العملاء</CardTitle>
-            <Users className="size-4 text-blue-500" />
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <Skeleton className="h-7 w-12" />
-            ) : (
-              <div className="text-2xl font-bold">{customerCount}</div>
-            )}
-            <p className="mt-1 text-xs text-muted-foreground">عميل نشط</p>
-          </CardContent>
-        </Card>
-
-        {/* Subscription */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">الاشتراك</CardTitle>
-            <Clock className="size-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <Badge variant={org?.subscription_status === "active" ? "success" : "destructive"} className="text-sm">
-              {org?.subscription_status === "active" ? "فعّال" : "منتهي"}
-            </Badge>
-            <p className="mt-2 text-xs text-muted-foreground">
-              {org?.subscription_expires_at
-                ? `ينتهي ${formatDate(org.subscription_expires_at)}`
-                : "بدون انتهاء"}
-            </p>
-          </CardContent>
-        </Card>
+        <StatCard title="إجمالي الفواتير الصادرة" icon={<TrendingUp className="size-4 text-green-500" />} loading={loading} value={formatCurrency(stats?.totalRevenue ?? 0)} detail={`${formatCurrency(stats?.monthRevenue ?? 0)} هذا الشهر`} />
+        <StatCard title="الفواتير الصادرة" icon={<FileText className="size-4 text-primary" />} loading={loading} value={String(stats?.issuedCount ?? 0)} detail={`${stats?.draftCount ?? 0} مسودة`} />
+        <StatCard title="العملاء" icon={<Users className="size-4 text-blue-500" />} loading={loading} value={String(customerCount ?? 0)} detail="عميل مسجل" />
+        <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">الاشتراك</CardTitle><Clock className="size-4 text-muted-foreground" /></CardHeader><CardContent>{loading ? <Skeleton className="h-7 w-20" /> : <><Badge variant={organization?.status === "active" ? "success" : "destructive"} className="text-sm">{organization?.status === "active" ? "فعّال" : "متوقف"}</Badge><p className="mt-2 text-xs text-muted-foreground">{organization?.subscription_expires_at ? `ينتهي ${formatDate(organization.subscription_expires_at)}` : "—"}</p></>}</CardContent></Card>
       </div>
 
-      {/* Recent Documents */}
-      <div>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-semibold">آخر المستندات</h2>
-          <Link to="/documents" className="flex items-center gap-1 text-sm text-primary hover:underline">
-            عرض الكل
-            <ArrowLeft className="size-3.5" />
-          </Link>
-        </div>
-
-        {loading ? (
-          <div className="space-y-2 rounded-lg border p-2">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-4 rounded-md px-3 py-2">
-                <Skeleton className="h-4 w-20" />
-                <Skeleton className="h-5 w-20 rounded-full" />
-                <Skeleton className="h-4 flex-1" />
-                <Skeleton className="h-4 w-16" />
-              </div>
-            ))}
-          </div>
-        ) : recentDocs && recentDocs.length > 0 ? (
-          <div className="rounded-lg border divide-y">
-            {recentDocs.map((doc) => (
-              <Link
-                key={doc.id}
-                to="/documents/$id"
-                params={{ id: doc.id }}
-                className="flex items-center gap-4 px-4 py-3 hover:bg-muted/50 transition-colors"
-              >
-                <span className="w-24 shrink-0 font-mono text-sm font-medium text-primary">
-                  {doc.number === "DRAFT" || !doc.number
-                    ? <span className="text-muted-foreground italic text-xs">مسودة</span>
-                    : doc.number}
-                </span>
-                <DocumentTypeBadge type={doc.type} />
-                <span className="flex-1 truncate text-sm">{doc.customer_name}</span>
-                <span className="text-xs text-muted-foreground tabular-nums" dir="ltr">{formatDate(doc.date)}</span>
-                <span className="w-24 text-end text-sm font-medium tabular-nums">{formatCurrency(doc.total)}</span>
-                <DocumentStatusBadge status={doc.status} />
-              </Link>
-            ))}
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed py-16 text-center">
-            <FileText className="size-12 text-muted-foreground/30" />
-            <div>
-              <p className="font-semibold">لا توجد مستندات بعد</p>
-              <p className="mt-1 text-sm text-muted-foreground">ابدأ بإنشاء أول فاتورتك الضريبية</p>
-            </div>
-            <Link to="/documents/new">
-              <Button className="gap-2">
-                <Plus className="size-4" />
-                إنشاء فاتورة
-              </Button>
+      <section>
+        <div className="mb-3 flex items-center justify-between"><h2 className="font-semibold">آخر الفواتير</h2><Link to="/documents" className="flex items-center gap-1 text-sm text-primary hover:underline">عرض الكل<ArrowLeft className="size-3.5" /></Link></div>
+        {loading ? <LoadingRows /> : recentDocuments?.length ? (
+          <div className="divide-y rounded-lg border">{recentDocuments.map((document) => (
+            <Link key={document.id} to="/documents/$id" params={{ id: document.id }} className="grid grid-cols-[1fr_auto] gap-2 px-4 py-3 transition-colors hover:bg-muted/50 sm:grid-cols-[7rem_1fr_7rem_7rem_auto] sm:items-center">
+              <span className="font-mono text-sm font-medium text-primary">{document.status === "draft" ? <span className="text-xs italic text-muted-foreground">مسودة</span> : document.number}</span>
+              <span className="truncate text-sm">{document.customer_snapshot.name || "عميل غير محدد"}</span>
+              <span className="hidden text-xs text-muted-foreground sm:block" dir="ltr">{formatDate(document.issue_date)}</span>
+              <span className="hidden text-end text-sm font-medium tabular-nums sm:block">{formatCurrency(Number(document.total))}</span>
+              <DocumentStatusBadge status={document.status} />
             </Link>
-          </div>
-        )}
-      </div>
+          ))}</div>
+        ) : <EmptyDocuments />}
+      </section>
     </div>
   )
+}
+
+function StatCard({ title, icon, loading, value, detail }: { title:string; icon:ReactNode; loading:boolean; value:string; detail:string }) {
+  return <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>{icon}</CardHeader><CardContent>{loading ? <Skeleton className="h-7 w-32" /> : <div className="text-2xl font-bold tabular-nums">{value}</div>}<p className="mt-1 text-xs text-muted-foreground">{loading ? <Skeleton className="mt-1 h-3 w-20" /> : detail}</p></CardContent></Card>
+}
+
+function LoadingRows() {
+  return <div className="space-y-2 rounded-lg border p-2">{Array.from({ length:4 }).map((_, index) => <div key={index} className="flex items-center gap-4 rounded-md px-3 py-2"><Skeleton className="h-4 w-20" /><Skeleton className="h-4 flex-1" /><Skeleton className="h-4 w-16" /></div>)}</div>
+}
+
+function EmptyDocuments() {
+  return <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed py-16 text-center"><FileText className="size-12 text-muted-foreground/30" /><div><p className="font-semibold">لا توجد فواتير بعد</p><p className="mt-1 text-sm text-muted-foreground">ابدأ بإنشاء أول فاتورة ضريبية</p></div><Button asChild className="gap-2"><Link to="/documents/new"><Plus className="size-4" />إنشاء فاتورة</Link></Button></div>
 }
