@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Link, useParams } from "@tanstack/react-router"
-import { Mail, MessageCircle, Pencil, Printer } from "lucide-react"
+import { Download, Mail, MessageCircle, Pencil, Printer, Share2 } from "lucide-react"
 import { fetchDocument, type CentralDocument } from "@/lib/platform/api"
+import { createInvoicePdf, downloadPdf, sharePdf } from "@/lib/pdf/invoicePdf"
 import { ZatcaQrCode } from "@/lib/zatca/ZatcaQrCode"
 import { Button } from "@/shared/components/ui/button"
 import { Separator } from "@/shared/components/ui/separator"
+import { toast } from "@/shared/hooks/useToast"
 import { formatCurrency, formatDate } from "@/shared/utils"
 
 type OrganizationSnapshot = {
@@ -24,6 +26,8 @@ type OrganizationSnapshot = {
 export function DocumentViewPage() {
   const { id } = useParams({ from: "/app/documents/$id" })
   const [document, setDocument] = useState<CentralDocument>()
+  const [creatingPdf, setCreatingPdf] = useState(false)
+  const printAreaRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     void fetchDocument(id).then((result) => { setDocument(result.document) })
@@ -36,10 +40,60 @@ export function DocumentViewPage() {
   const hasUnits = document.items?.some((item) => Boolean(item.unit?.trim())) ?? false
   const sellerAddress = [seller.street, seller.building_number, seller.district, seller.city, seller.postal_code].filter(Boolean).join("، ")
   const customerAddress = [customer.street, customer.building_number, customer.district, customer.city, customer.postal_code].filter(Boolean).join("، ")
-  const shareText = document.status === "issued" ? `فاتورة ضريبية رقم ${document.number} بقيمة ${formatCurrency(Number(document.total))} من ${seller.business_name ?? "EasyTAX"}.` : ""
+  const organizationName = seller.business_name ?? "المنشأة"
+  const shareText = document.status === "issued" ? `السلام عليكم ورحمة الله وبركاته،\n\nيسر ${organizationName} أن ترسل لكم الفاتورة الضريبية رقم ${document.number} بتاريخ ${formatDate(document.issue_date)}، وبإجمالي ${formatCurrency(Number(document.total))}.\n\nنأمل التكرم بمراجعة الفاتورة المرفقة.\n\nمع خالص التحية،\n${organizationName}${seller.vat_number ? `\nالرقم الضريبي: ${seller.vat_number}` : ""}` : ""
   const emailUrl = customer.email ? `mailto:${customer.email}?subject=${encodeURIComponent(`فاتورة ضريبية رقم ${document.number}`)}&body=${encodeURIComponent(shareText)}` : ""
   const whatsappPhone = customer.phone?.replace(/\D/g, "").replace(/^0/, "966") ?? ""
   const whatsappUrl = whatsappPhone ? `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(shareText)}` : ""
+  const pdfFileName = `tax-invoice-${document.number}.pdf`
+
+  const makePdf = async () => {
+    if (!printAreaRef.current) throw new Error("تعذر العثور على محتوى الفاتورة")
+    return createInvoicePdf(printAreaRef.current)
+  }
+
+  const handleDownload = async () => {
+    setCreatingPdf(true)
+    try {
+      downloadPdf(await makePdf(), pdfFileName)
+      toast({ title: "تم إنشاء PDF", description: "تم تنزيل ملف الفاتورة بنجاح", variant: "success" })
+    } catch (error) {
+      toast({ title: "تعذر إنشاء PDF", description: error instanceof Error ? error.message : "حاول مرة أخرى", variant: "error" })
+    } finally { setCreatingPdf(false) }
+  }
+
+  const handleNativeShare = async () => {
+    setCreatingPdf(true)
+    try {
+      const blob = await makePdf()
+      const shared = await sharePdf(blob, pdfFileName, `فاتورة ضريبية رقم ${document.number}`, shareText)
+      if (!shared) {
+        downloadPdf(blob, pdfFileName)
+        toast({ title: "المشاركة غير مدعومة", description: "تم تنزيل PDF ويمكنك إرفاقه يدويًا", variant: "success" })
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return
+      toast({ title: "تعذرت المشاركة", description: error instanceof Error ? error.message : "حاول مرة أخرى", variant: "error" })
+    } finally { setCreatingPdf(false) }
+  }
+
+  const openMessageWithPdf = async (target: "email" | "whatsapp") => {
+    const popup = target === "whatsapp" ? window.open("about:blank", "_blank") : null
+    setCreatingPdf(true)
+    try {
+      downloadPdf(await makePdf(), pdfFileName)
+      if (target === "whatsapp") {
+        if (popup) popup.location.href = whatsappUrl
+        else window.location.href = whatsappUrl
+      } else {
+        window.location.href = emailUrl
+      }
+      toast({ title: "تم تجهيز الفاتورة", description: "أرفق ملف PDF الذي تم تنزيله بالرسالة", variant: "success" })
+    } catch (error) {
+      popup?.close()
+      toast({ title: "تعذر تجهيز الرسالة", description: error instanceof Error ? error.message : "حاول مرة أخرى", variant: "error" })
+    } finally { setCreatingPdf(false) }
+  }
 
   return (
     <div className="min-h-screen bg-muted/20 p-3 sm:p-6" dir="rtl">
@@ -54,12 +108,14 @@ export function DocumentViewPage() {
           <Button variant="outline" className="gap-2" onClick={() => { window.print() }}>
             <Printer className="size-4" />طباعة / PDF
           </Button>
-          {document.status === "issued" && customer.email ? <Button asChild variant="outline" className="gap-2"><a href={emailUrl}><Mail className="size-4" />إرسال بالبريد</a></Button> : null}
-          {document.status === "issued" && whatsappPhone ? <Button asChild variant="outline" className="gap-2"><a href={whatsappUrl} target="_blank" rel="noreferrer"><MessageCircle className="size-4" />واتساب</a></Button> : null}
+          {document.status === "issued" ? <Button variant="outline" className="gap-2" disabled={creatingPdf} onClick={() => { void handleDownload() }}><Download className="size-4" />تنزيل PDF</Button> : null}
+          {document.status === "issued" ? <Button variant="outline" className="gap-2" disabled={creatingPdf} onClick={() => { void handleNativeShare() }}><Share2 className="size-4" />مشاركة PDF</Button> : null}
+          {document.status === "issued" && customer.email ? <Button variant="outline" className="gap-2" disabled={creatingPdf} onClick={() => { void openMessageWithPdf("email") }}><Mail className="size-4" />البريد</Button> : null}
+          {document.status === "issued" && whatsappPhone ? <Button variant="outline" className="gap-2" disabled={creatingPdf} onClick={() => { void openMessageWithPdf("whatsapp") }}><MessageCircle className="size-4" />واتساب</Button> : null}
         </div>
       </div>
 
-      <article data-print-area className="mx-auto max-w-4xl rounded-xl border bg-white p-5 shadow-sm sm:p-8 print:border-0 print:shadow-none">
+      <article ref={printAreaRef} data-print-area className="mx-auto max-w-4xl rounded-xl border bg-white p-5 shadow-sm sm:p-8 print:border-0 print:shadow-none">
         <header className="flex justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold">فاتورة ضريبية</h1>
