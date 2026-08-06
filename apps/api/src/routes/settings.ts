@@ -37,18 +37,21 @@ settingsRouter.get("/", async (c) => {
   return c.json({ organization, payment_methods: paymentMethods, quotation_terms: quotationTerms, sequences })
 })
 
+const optionalText = z.preprocess((value) => value == null ? "" : value, z.string())
+const optionalPattern = (pattern: RegExp, message: string) => z.preprocess((value) => value == null ? "" : value, z.string().regex(pattern, message).or(z.literal("")))
+
 const settingsSchema = z.object({
-  commercial_registration: z.string().trim().min(1), phone: z.string().optional(),
-  email: z.string().email().optional().or(z.literal("")),
+  commercial_registration: z.string().trim().min(1), phone: optionalText,
+  email: z.preprocess((value) => value == null ? "" : value, z.string().email().or(z.literal(""))),
   show_phone_on_documents: z.boolean(), show_email_on_documents: z.boolean(),
   city: z.string().trim().min(1), district: z.string().trim().min(1), street: z.string().trim().min(1),
-  building_number: z.string().regex(/^\d{4}$/, "رقم المبنى يجب أن يكون 4 أرقام"),
-  postal_code: z.string().regex(/^\d{5}$/, "الرمز البريدي يجب أن يكون 5 أرقام"),
-  additional_number: z.string().regex(/^\d{4}$/).optional().or(z.literal("")), short_address: z.string().optional(),
-  bank_enabled: z.boolean(), bank_name: z.string().optional(), bank_account_name: z.string().optional(), iban: z.string().optional(),
+  building_number: optionalPattern(/^\d{4}$/, "رقم المبنى يجب أن يكون 4 أرقام"),
+  postal_code: optionalPattern(/^\d{5}$/, "الرمز البريدي يجب أن يكون 5 أرقام"),
+  additional_number: optionalPattern(/^\d{4}$/, "الرقم الإضافي يجب أن يكون 4 أرقام"), short_address: optionalText,
+  bank_enabled: z.boolean(), bank_name: optionalText, bank_account_name: optionalText, iban: optionalText,
   prices_include_tax: z.boolean(), retention_enabled: z.boolean(),
-  invoice_default_notes: z.string().optional(), quotation_default_notes: z.string().optional(),
-  receipt_default_notes: z.string().optional(), receipt_default_phrase: z.string().optional(),
+  invoice_default_notes: optionalText, quotation_default_notes: optionalText,
+  receipt_default_notes: optionalText, receipt_default_phrase: optionalText,
   stamp_on_invoice: z.boolean(), stamp_on_quotation: z.boolean(), stamp_on_receipt: z.boolean(),
   signature_on_invoice: z.boolean(), signature_on_quotation: z.boolean(), signature_on_receipt: z.boolean(),
   payment_methods: z.array(z.object({ name: z.string().trim().min(1), is_collected: z.boolean(), is_default: z.boolean(), is_active: z.boolean() })),
