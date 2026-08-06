@@ -43,7 +43,7 @@ receiptsRouter.get("/", async (c) => {
 receiptsRouter.get("/:id", async (c) => {
   const orgId = await organizationId(c.req.raw.headers)
   if (!orgId) return c.json({ error: "غير مصرح" }, 401)
-  const rows = await sql`SELECT * FROM customer_receipts WHERE id=${c.req.param("id")} AND organization_id=${orgId} LIMIT 1`
+  const rows = await sql`SELECT cr.*,CASE WHEN cr.organization_snapshot='{}'::jsonb THEN to_jsonb(o) ELSE cr.organization_snapshot END AS organization_snapshot FROM customer_receipts cr JOIN organizations o ON o.id=cr.organization_id WHERE cr.id=${c.req.param("id")} AND cr.organization_id=${orgId} LIMIT 1`
   return rows[0] ? c.json({ receipt: rows[0] }) : c.json({ error: "سند القبض غير موجود" }, 404)
 })
 
