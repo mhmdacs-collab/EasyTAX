@@ -62,13 +62,16 @@ export type DocumentFormData = z.infer<typeof docSchema>
 interface Props {
   initialType?: DocumentType
   draft?: Document
+  initialAppearance?: { show_stamp: boolean; show_signature: boolean }
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
-export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
+export function DocumentForm({ initialType = "tax_invoice", draft, initialAppearance }: Props) {
   const navigate = useNavigate()
   const [isSaving, setIsSaving] = useState(false)
   const [isIssuing, setIsIssuing] = useState(false)
+  const [appearance, setAppearance] = useState(initialAppearance ?? { show_stamp: false, show_signature: false })
+  const [availableAppearance, setAvailableAppearance] = useState({ stamp: false, signature: false })
 
   const org = useLiveQuery(() => db.organizations.toArray().then((r) => r[0]))
 
@@ -122,7 +125,14 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
   const { register, watch, setValue } = form
   const docType = watch("type")
   const [paymentMethods,setPaymentMethods]=useState<string[]>([])
-  useEffect(()=>{void fetchSettings().then((settings)=>{setPaymentMethods(settings.payment_methods.filter((method)=>method.is_active).map((method)=>method.name))})},[])
+  useEffect(()=>{void fetchSettings().then((settings)=>{
+    setPaymentMethods(settings.payment_methods.filter((method)=>method.is_active).map((method)=>method.name))
+    const organization=settings.organization
+    const stamp=Boolean(organization.stamp_url&&organization.stamp_on_invoice)
+    const signature=Boolean(organization.signature_url&&organization.signature_on_invoice)
+    setAvailableAppearance({stamp,signature})
+    if(!draft)setAppearance({show_stamp:stamp,show_signature:signature})
+  })},[draft])
 
   const toCentralDraft = (data: DocumentFormData): DocumentDraftInput => ({
     customer_id: data.customer_id,
@@ -133,8 +143,8 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
     discount_amount: data.discount_amount,
     notes: data.notes || undefined,
     show_bank_details: Boolean(data.payment_method),
-    show_stamp: false,
-    show_signature: false,
+    show_stamp: appearance.show_stamp,
+    show_signature: appearance.show_signature,
     reference_data: { purchase_order: data.purchase_order, reference_number: data.reference_number, payment_method: data.payment_method },
     items: data.items.map((item) => ({ description:item.description,unit:item.unit,quantity:item.quantity,unit_price:item.unit_price,discount_percent:item.discount_percent,retention_percent:item.retention_percent })),
   })
@@ -296,6 +306,7 @@ export function DocumentForm({ initialType = "tax_invoice", draft }: Props) {
             <Select value={watch("payment_method")||"none"} onValueChange={(value)=>{setValue("payment_method",value==="none"?"":value)}}><SelectTrigger><SelectValue placeholder="اختر طريقة السداد"/></SelectTrigger><SelectContent><SelectItem value="none">غير محددة</SelectItem>{paymentMethods.map((method)=><SelectItem key={method} value={method}>{method}</SelectItem>)}</SelectContent></Select>
             <p className="text-xs text-muted-foreground">معلومة تظهر في الفاتورة ولا تنشئ قيدًا محاسبيًا.</p>
           </div>
+          {(availableAppearance.stamp||availableAppearance.signature)&&<div className="space-y-2 rounded-lg border p-3"><Label>مظهر هذه الفاتورة</Label>{availableAppearance.stamp&&<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={appearance.show_stamp} onChange={(event)=>{setAppearance((current)=>({...current,show_stamp:event.target.checked}))}}/>إظهار ختم المنشأة</label>}{availableAppearance.signature&&<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={appearance.show_signature} onChange={(event)=>{setAppearance((current)=>({...current,show_signature:event.target.checked}))}}/>إظهار توقيع المنشأة</label>}<p className="text-xs text-muted-foreground">يمكن إخفاؤهما لهذه الفاتورة فقط دون تغيير الإعدادات العامة.</p></div>}
         </div>
         <TotalsSection form={form} />
       </div>
