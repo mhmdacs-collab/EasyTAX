@@ -26,7 +26,7 @@ const draftSchema = z.object({
   prices_include_tax: z.boolean(), retention_basis: z.enum(["before_tax", "including_tax"]).optional(),
   discount_amount: z.number().nonnegative().default(0), notes: z.string().optional(),
   show_bank_details: z.boolean().default(false), show_stamp: z.boolean().default(false), show_signature: z.boolean().default(false),
-  reference_data: z.object({ purchase_order: z.string().optional(), reference_number: z.string().optional(), payment_method: z.string().optional() }).default({}),
+  reference_data: z.object({ purchase_order: z.string().optional(), reference_number: z.string().optional(), payment_method: z.string().optional(), show_totals: z.boolean().optional() }).default({}),
   payments: z.array(z.object({ payment_method_name: z.string().trim().min(1), amount: z.number().positive() })).default([]),
   terms: z.array(z.string().trim().min(1)).default([]),
   items: z.array(itemSchema).min(1),

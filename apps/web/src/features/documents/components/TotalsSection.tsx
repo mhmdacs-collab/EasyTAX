@@ -10,6 +10,7 @@ interface Props {
   form: UseFormReturn<DocumentFormData>
   children?: ReactNode
   isQuotation?: boolean
+  hideTotals?: boolean
 }
 
 function TotalRow({ label, value, bold }: { label: string; value: number; bold?: boolean }) {
@@ -21,7 +22,7 @@ function TotalRow({ label, value, bold }: { label: string; value: number; bold?:
   )
 }
 
-export function TotalsSection({ form, children, isQuotation = false }: Props) {
+export function TotalsSection({ form, children, isQuotation = false, hideTotals = false }: Props) {
   const { register, control, setValue } = form
   const [watchedItems, vatRate, vatInclusive, discountAmount] = useWatch({ control, name: ["items", "vat_rate", "vat_inclusive", "discount_amount"] })
   const retentionAmount = watchedItems.reduce((sum,item)=>sum+calcItemSubtotal(item.unit_price||0,item.quantity||0,item.discount_percent||0)*(item.retention_percent||0)/100,0)
@@ -39,12 +40,12 @@ export function TotalsSection({ form, children, isQuotation = false }: Props) {
 
   return (
     <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">المجاميع</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{hideTotals?"إعداد الضريبة":"المجاميع"}</p>
 
-      <TotalRow label="المجموع الفرعي" value={totals.subtotal} />
+      {!hideTotals&&<TotalRow label="المجموع الفرعي" value={totals.subtotal} />}
 
       {/* Optional discount */}
-      {!isQuotation&&<div className="flex items-center gap-3">
+      {!hideTotals&&!isQuotation&&<div className="flex items-center gap-3">
         <span className="shrink-0 text-sm text-muted-foreground">خصم (ر.س)</span>
         <Input
           type="number"
@@ -57,7 +58,7 @@ export function TotalsSection({ form, children, isQuotation = false }: Props) {
         />
       </div>}
 
-      <Separator />
+      {!hideTotals&&<Separator />}
 
       {/* VAT settings */}
       <div className="space-y-2">
@@ -68,9 +69,9 @@ export function TotalsSection({ form, children, isQuotation = false }: Props) {
         </div>
       </div>
 
-      <Separator />
+      {!hideTotals&&<Separator />}
 
-      {(totals.discount_amount > 0 || totals.retention_amount > 0) && (
+      {!hideTotals&&(totals.discount_amount > 0 || totals.retention_amount > 0) && (
         <>
           {totals.discount_amount > 0 && <TotalRow label="الخصم" value={-totals.discount_amount} />}
           {totals.retention_amount > 0 && <TotalRow label="الاستقطاع" value={-totals.retention_amount} />}
@@ -79,10 +80,10 @@ export function TotalsSection({ form, children, isQuotation = false }: Props) {
         </>
       )}
 
-      <TotalRow label={`ضريبة القيمة المضافة (${vatRate}%)`} value={totals.vat_amount} />
+      {!hideTotals&&<TotalRow label={`ضريبة القيمة المضافة (${vatRate}%)`} value={totals.vat_amount} />}
 
-      <Separator />
-      <TotalRow label="الإجمالي الكلي" value={totals.total} bold />
+      {!hideTotals&&<Separator />}
+      {!hideTotals&&<TotalRow label="الإجمالي الكلي" value={totals.total} bold />}
       {children ? <><Separator />{children}</> : null}
     </div>
   )
