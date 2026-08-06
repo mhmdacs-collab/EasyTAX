@@ -1,4 +1,4 @@
-﻿import { useFieldArray, type UseFormReturn } from "react-hook-form"
+﻿import { useFieldArray, useWatch, type UseFormReturn } from "react-hook-form"
 import { Trash2, Plus } from "lucide-react"
 import { Button } from "@/shared/components/ui/button"
 import { Input } from "@/shared/components/ui/input"
@@ -11,9 +11,9 @@ interface Props {
 }
 
 export function ItemsTable({ form }: Props) {
-  const { register, watch, control } = form
+  const { register, control } = form
   const { fields, append, remove } = useFieldArray({ control, name: "items" })
-  const watchedItems = watch("items")
+  const watchedItems = useWatch({ control, name: "items" })
 
   const addItem = () => {
     append({ id: generateId(), description: "", unit: "", quantity: 1, unit_price: 0, discount_percent: 0, retention_percent:0, subtotal: 0 })

@@ -5,22 +5,18 @@ export function generateId(): string {
 
 /** تنسيق المبالغ بالريال السعودي */
 export function formatCurrency(amount: number, options?: Intl.NumberFormatOptions): string {
-  return new Intl.NumberFormat("ar-SA-u-nu-latn", {
-    style: "currency",
-    currency: "SAR",
+  const formatted = new Intl.NumberFormat("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
     ...options,
   }).format(amount)
+  return `${formatted} ر.س`
 }
 
 /** تنسيق التاريخ */
 export function formatDate(dateStr: string): string {
-  return new Intl.DateTimeFormat("ar-SA-u-nu-latn", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  }).format(new Date(dateStr))
+  const [year, month, day] = dateStr.slice(0, 10).split("-")
+  return year && month && day ? `${year}/${month}/${day}` : dateStr
 }
 
 /** دمج أسماء الكلاسات */

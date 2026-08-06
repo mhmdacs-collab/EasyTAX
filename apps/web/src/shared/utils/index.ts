@@ -5,22 +5,18 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatCurrency(amount: number, currency = "SAR"): string {
-  return new Intl.NumberFormat("ar-SA-u-nu-latn", {
-    style: "currency",
-    currency,
+export function formatCurrency(amount: number, _currency = "SAR"): string {
+  const formatted = new Intl.NumberFormat("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amount);
+  return `${formatted} ر.س`;
 }
 
 export function formatDate(date: Date | string): string {
-  const d = typeof date === "string" ? new Date(date) : date;
-  return new Intl.DateTimeFormat("ar-SA-u-nu-latn", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(d);
+  const d = typeof date === "string" ? date.slice(0, 10) : `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
+  const [year, month, day] = d.split("-");
+  return year && month && day ? `${year}/${month}/${day}` : d;
 }
 
 export function generateId(): string {

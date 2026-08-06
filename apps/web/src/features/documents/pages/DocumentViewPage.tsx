@@ -149,6 +149,7 @@ export function DocumentViewPage() {
           <Row label="ضريبة القيمة المضافة 15%" value={Number(document.tax_total)} />
           {Number(document.retention_total) > 0 ? <Row label="حجز ضمان الأعمال" value={-Number(document.retention_total)} /> : null}
           <Separator /><Row label="الإجمالي" value={Number(document.total)} bold />
+          {(document.payments?.length ?? 0) > 0 ? <><Separator />{document.payments?.map((payment)=><Row key={payment.id} label={`محصل — ${payment.payment_method_name}`} value={-Number(payment.amount)}/>)}<Row label="المبلغ المستحق" value={Math.max(0,Number(document.total)-(document.payments??[]).reduce((sum,payment)=>sum+Number(payment.amount),0))} bold /></> : null}
         </div>
 
         {document.status === "issued" && seller.business_name && seller.vat_number ? <div className="mt-8 flex justify-center border-t pt-6"><ZatcaQrCode sellerName={seller.business_name} vatNumber={seller.vat_number} invoiceDateTime={document.updated_at} totalWithVat={Number(document.total) + Number(document.retention_total)} vatAmount={Number(document.tax_total)} size={176} /></div> : null}
