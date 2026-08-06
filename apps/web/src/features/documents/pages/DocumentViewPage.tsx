@@ -149,12 +149,12 @@ export function DocumentViewPage() {
           <Row label="المجموع قبل الضريبة" value={Number(document.subtotal)} />
           {Number(document.discount_total) > 0 ? <Row label="الخصم" value={-Number(document.discount_total)} /> : null}
           <Row label="ضريبة القيمة المضافة 15%" value={Number(document.tax_total)} />
-          {Number(document.retention_total) > 0 ? <Row label="حجز ضمان الأعمال" value={-Number(document.retention_total)} /> : null}
-          <Separator /><Row label="الإجمالي" value={Number(document.total)} bold />
-          {(document.payments?.length ?? 0) > 0 ? <><Separator />{document.payments?.map((payment)=><Row key={payment.id} label={payment.payment_method_name} value={Number(payment.amount)}/>)}<Row label="المبلغ المستحق" value={Math.max(0,Number(document.total)-(document.payments??[]).reduce((sum,payment)=>sum+Number(payment.amount),0))} bold /></> : null}
+          <Separator /><Row label="إجمالي الفاتورة" value={Number(document.total)} bold />
+          {Number(document.retention_total) > 0 ? <><Row label="حجز ضمان الأعمال" value={-Number(document.retention_total)} /><Row label="صافي المطلوب" value={Number(document.total)-Number(document.retention_total)} bold /></> : null}
+          {(document.payments?.length ?? 0) > 0 ? <><Separator />{document.payments?.map((payment)=><Row key={payment.id} label={payment.payment_method_name} value={Number(payment.amount)}/>)}<Row label="المبلغ المستحق" value={Math.max(0,Number(document.total)-Number(document.retention_total)-(document.payments??[]).reduce((sum,payment)=>sum+Number(payment.amount),0))} bold /></> : null}
         </div>:<p className="mt-5 rounded-lg bg-muted/50 p-4 text-sm">جميع الأسعار المذكورة في العرض {document.prices_include_tax?"شاملة":"غير شاملة"} ضريبة القيمة المضافة 15%، وتُحدد الكميات والقيمة النهائية عند الطلب.</p>}
 
-        {!isQuotation&&document.status === "issued" && seller.business_name && seller.vat_number ? <div className="mt-8 flex justify-center border-t pt-6"><ZatcaQrCode sellerName={seller.business_name} vatNumber={seller.vat_number} invoiceDateTime={document.updated_at} totalWithVat={Number(document.total) + Number(document.retention_total)} vatAmount={Number(document.tax_total)} size={176} /></div> : null}
+        {!isQuotation&&document.status === "issued" && seller.business_name && seller.vat_number ? <div className="mt-8 flex justify-center border-t pt-6"><ZatcaQrCode sellerName={seller.business_name} vatNumber={seller.vat_number} invoiceDateTime={document.updated_at} totalWithVat={Number(document.total)} vatAmount={Number(document.tax_total)} size={176} /></div> : null}
         {!isQuotation&&document.reference_data.payment_method ? <Info label="طريقة السداد" value={document.reference_data.payment_method} /> : null}
         {isQuotation&&(document.terms?.length??0)>0?<div className="mt-6 border-t pt-4"><p className="font-medium">الشروط والأحكام</p><ol className="mt-2 list-decimal space-y-1 pe-5 text-sm text-muted-foreground">{document.terms?.map((term,index)=><li key={index}>{term}</li>)}</ol></div>:null}
         {document.show_bank_details && seller.iban ? <Info label="الحساب البنكي" value={[seller.bank_name, seller.bank_account_name, seller.iban].filter(Boolean).join(" · ")} ltr /> : null}

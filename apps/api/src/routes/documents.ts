@@ -39,18 +39,22 @@ function calculate(body: z.infer<typeof draftSchema>) {
     const discount = gross * item.discount_percent / 100
     const afterDiscount = gross - discount
     const beforeTax = body.prices_include_tax ? afterDiscount / 1.15 : afterDiscount
-    const tax = beforeTax * 0.15
+    const tax = body.prices_include_tax ? afterDiscount - beforeTax : beforeTax * 0.15
     const retentionBase = body.retention_basis === "including_tax" ? beforeTax + tax : beforeTax
     const retention = retentionBase * item.retention_percent / 100
-    return { ...item, sort_order: index, discount: round(discount), line_subtotal: round(beforeTax), line_tax: round(tax), line_retention: round(retention), line_total: round(beforeTax + tax - retention) }
+    return { ...item, sort_order: index, discount: round(discount), line_subtotal: round(beforeTax), line_tax: round(tax), line_retention: round(retention), line_total: round(beforeTax + tax) }
   })
   const subtotal = round(lines.reduce((sum, line) => sum + line.line_subtotal, 0))
   const rawTaxTotal = lines.reduce((sum, line) => sum + line.line_tax, 0)
-  const discountRatio = subtotal > 0 ? Math.max(0, subtotal - body.discount_amount) / subtotal : 1
+  const maxDiscount = body.prices_include_tax ? subtotal + rawTaxTotal : subtotal
+  const safeDiscount = Math.min(maxDiscount, Math.max(0, body.discount_amount))
+  const safeDiscountBeforeTax = body.prices_include_tax ? safeDiscount / 1.15 : safeDiscount
+  const discountRatio = subtotal > 0 ? Math.max(0, subtotal - safeDiscountBeforeTax) / subtotal : 1
   const taxTotal = round(rawTaxTotal * discountRatio)
-  const retentionTotal = round(lines.reduce((sum, line) => sum + line.line_retention, 0))
-  const total = round(Math.max(0, subtotal - body.discount_amount + taxTotal - retentionTotal))
-  return { lines, subtotal, taxTotal, retentionTotal, total }
+  const retentionTotal = round(lines.reduce((sum, line) => sum + line.line_retention, 0) * discountRatio)
+  const total = round(Math.max(0, subtotal - safeDiscountBeforeTax + taxTotal))
+  const payableTotal = round(Math.max(0, total - retentionTotal))
+  return { lines, subtotal, discountTotal: round(safeDiscount), taxTotal, retentionTotal, total, payableTotal }
 }
 
 documentsRouter.get("/", async (c) => {
@@ -70,19 +74,19 @@ documentsRouter.get("/:id", async (c) => {
 async function saveDraft(organizationId: string, id: string, body: z.infer<typeof draftSchema>, update: boolean) {
   const totals = calculate(body)
   const collectedTotal = Math.round(body.payments.reduce((sum, payment) => sum + payment.amount, 0) * 100) / 100
-  if (collectedTotal > totals.total) return { error: "PAYMENTS_EXCEED_TOTAL" as const }
-  const dueTotal = Math.round((totals.total - collectedTotal) * 100) / 100
+  if (collectedTotal > totals.payableTotal) return { error: "PAYMENTS_EXCEED_TOTAL" as const }
+  const dueTotal = Math.round((totals.payableTotal - collectedTotal) * 100) / 100
   return withTransaction(async (client) => {
     const customer = await client.query("SELECT * FROM customers WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL", [body.customer_id, organizationId])
     if (!customer.rows[0]) return { error: "CUSTOMER_NOT_FOUND" as const }
     if (update) {
-      const changed = await client.query(`UPDATE documents SET type=$1,customer_id=$2,issue_date=$3,due_date=$4,prices_include_tax=$5,retention_basis=$6,subtotal=$7,discount_total=$8,tax_total=$9,retention_total=$10,total=$11,collected_total=$12,due_total=$13,show_bank_details=$14,show_stamp=$15,show_signature=$16,notes=$17,reference_data=$18,customer_snapshot=$19,updated_at=NOW(),sync_version=sync_version+1 WHERE id=$20 AND organization_id=$21 AND status='draft' AND deleted_at IS NULL RETURNING id`, [body.type,body.customer_id,body.issue_date,body.due_date||null,body.prices_include_tax,body.retention_basis||null,totals.subtotal,body.discount_amount,totals.taxTotal,totals.retentionTotal,totals.total,collectedTotal,dueTotal,body.show_bank_details,body.show_stamp,body.show_signature,body.notes||null,JSON.stringify(body.reference_data),JSON.stringify(customer.rows[0]),id,organizationId])
+      const changed = await client.query(`UPDATE documents SET type=$1,customer_id=$2,issue_date=$3,due_date=$4,prices_include_tax=$5,retention_basis=$6,subtotal=$7,discount_total=$8,tax_total=$9,retention_total=$10,total=$11,collected_total=$12,due_total=$13,show_bank_details=$14,show_stamp=$15,show_signature=$16,notes=$17,reference_data=$18,customer_snapshot=$19,updated_at=NOW(),sync_version=sync_version+1 WHERE id=$20 AND organization_id=$21 AND status='draft' AND deleted_at IS NULL RETURNING id`, [body.type,body.customer_id,body.issue_date,body.due_date||null,body.prices_include_tax,body.retention_basis||null,totals.subtotal,totals.discountTotal,totals.taxTotal,totals.retentionTotal,totals.total,collectedTotal,dueTotal,body.show_bank_details,body.show_stamp,body.show_signature,body.notes||null,JSON.stringify(body.reference_data),JSON.stringify(customer.rows[0]),id,organizationId])
       if (!changed.rows[0]) return { error: "DRAFT_NOT_EDITABLE" as const }
       await client.query("DELETE FROM document_items WHERE document_id=$1", [id])
       await client.query("DELETE FROM document_payments WHERE document_id=$1", [id])
       await client.query("DELETE FROM document_terms WHERE document_id=$1", [id])
     } else {
-      await client.query(`INSERT INTO documents(id,organization_id,customer_id,type,number,issue_date,due_date,status,prices_include_tax,retention_basis,subtotal,discount_total,tax_total,retention_total,total,collected_total,due_total,show_bank_details,show_stamp,show_signature,notes,reference_data,customer_snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,'draft',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`, [id,organizationId,body.customer_id,body.type,`DRAFT-${id}`,body.issue_date,body.due_date||null,body.prices_include_tax,body.retention_basis||null,totals.subtotal,body.discount_amount,totals.taxTotal,totals.retentionTotal,totals.total,collectedTotal,dueTotal,body.show_bank_details,body.show_stamp,body.show_signature,body.notes||null,JSON.stringify(body.reference_data),JSON.stringify(customer.rows[0])])
+      await client.query(`INSERT INTO documents(id,organization_id,customer_id,type,number,issue_date,due_date,status,prices_include_tax,retention_basis,subtotal,discount_total,tax_total,retention_total,total,collected_total,due_total,show_bank_details,show_stamp,show_signature,notes,reference_data,customer_snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,'draft',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`, [id,organizationId,body.customer_id,body.type,`DRAFT-${id}`,body.issue_date,body.due_date||null,body.prices_include_tax,body.retention_basis||null,totals.subtotal,totals.discountTotal,totals.taxTotal,totals.retentionTotal,totals.total,collectedTotal,dueTotal,body.show_bank_details,body.show_stamp,body.show_signature,body.notes||null,JSON.stringify(body.reference_data),JSON.stringify(customer.rows[0])])
     }
     for (const line of totals.lines) await client.query(`INSERT INTO document_items(document_id,description,unit,quantity,unit_price,discount,tax_rate,retention_rate,line_subtotal,line_tax,line_retention,line_total,sort_order) VALUES($1,$2,$3,$4,$5,$6,15,$7,$8,$9,$10,$11,$12)`, [id,line.description,line.unit||null,line.quantity,line.unit_price,line.discount,line.retention_percent,line.line_subtotal,line.line_tax,line.line_retention,line.line_total,line.sort_order])
     for (const payment of body.payments) await client.query(`INSERT INTO document_payments(document_id,payment_method_id,payment_method_name,amount,is_collected,paid_at) VALUES($1,(SELECT id FROM payment_methods WHERE organization_id=$2 AND name=$3 AND is_active=TRUE LIMIT 1),$3,$4,TRUE,NOW())`, [id,organizationId,payment.payment_method_name,payment.amount])

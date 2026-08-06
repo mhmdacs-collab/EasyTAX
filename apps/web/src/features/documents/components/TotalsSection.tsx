@@ -46,7 +46,7 @@ export function TotalsSection({ form, children, isQuotation = false, hideTotals 
 
       {/* Optional discount */}
       {!hideTotals&&!isQuotation&&<div className="flex items-center gap-3">
-        <span className="shrink-0 text-sm text-muted-foreground">خصم (ر.س)</span>
+        <span className="shrink-0 text-sm text-muted-foreground">خصم إضافي على الفاتورة (ر.س)</span>
         <Input
           type="number"
           min="0"
@@ -73,8 +73,7 @@ export function TotalsSection({ form, children, isQuotation = false, hideTotals 
 
       {!hideTotals&&(totals.discount_amount > 0 || totals.retention_amount > 0) && (
         <>
-          {totals.discount_amount > 0 && <TotalRow label="الخصم" value={-totals.discount_amount} />}
-          {totals.retention_amount > 0 && <TotalRow label="الاستقطاع" value={-totals.retention_amount} />}
+          {totals.discount_amount > 0 && <TotalRow label="خصم إضافي على الفاتورة" value={-totals.discount_amount} />}
           <TotalRow label="الوعاء الضريبي" value={totals.taxable_amount} />
           <Separator />
         </>
@@ -84,6 +83,7 @@ export function TotalsSection({ form, children, isQuotation = false, hideTotals 
 
       {!hideTotals&&<Separator />}
       {!hideTotals&&<TotalRow label="الإجمالي الكلي" value={totals.total} bold />}
+      {!hideTotals&&totals.retention_amount > 0 && <><TotalRow label="حجز ضمان الأعمال" value={-totals.retention_amount} /><TotalRow label="صافي المطلوب" value={totals.payable_amount} bold /></>}
       {children ? <><Separator />{children}</> : null}
     </div>
   )

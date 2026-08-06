@@ -12,7 +12,7 @@ export type CollectedPayment = { payment_method_name:string; amount:number }
 export function PaymentCollection({form,methods,enabled,onEnabled,payments,onPayments}:{form:UseFormReturn<DocumentFormData>;methods:string[];enabled:boolean;onEnabled:(value:boolean)=>void;payments:CollectedPayment[];onPayments:(value:CollectedPayment[])=>void}){
   const [items,vatRate,vatInclusive,discountAmount]=useWatch({control:form.control,name:["items","vat_rate","vat_inclusive","discount_amount"]})
   const retention=items.reduce((sum,item)=>sum+calcItemSubtotal(item.unit_price||0,item.quantity||0,item.discount_percent||0)*(item.retention_percent||0)/100,0)
-  const total=calcDocumentTotals(items.map((item)=>({subtotal:calcItemSubtotal(item.unit_price||0,item.quantity||0,item.discount_percent||0)})),vatRate,vatInclusive,discountAmount||0,retention).total
+  const total=calcDocumentTotals(items.map((item)=>({subtotal:calcItemSubtotal(item.unit_price||0,item.quantity||0,item.discount_percent||0)})),vatRate,vatInclusive,discountAmount||0,retention).payable_amount
   const collected=payments.reduce((sum,payment)=>sum+(payment.amount||0),0)
   const update=(index:number,patch:Partial<CollectedPayment>)=>{ onPayments(payments.map((payment,i)=>i===index?{...payment,...patch}:payment)); }
   return <div className="space-y-3">

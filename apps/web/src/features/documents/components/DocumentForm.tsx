@@ -168,7 +168,7 @@ export function DocumentForm({ initialType = "tax_invoice", draft, initialAppear
     issue_date: data.date,
     due_date: isQuotation ? undefined : data.due_date || undefined,
     prices_include_tax: data.vat_inclusive,
-    retention_basis: !isQuotation && retentionEnabled && data.items.some((item)=>item.retention_percent>0) ? "before_tax" : undefined,
+    retention_basis: !isQuotation && retentionEnabled && data.items.some((item)=>item.retention_percent>0) ? (data.vat_inclusive ? "including_tax" : "before_tax") : undefined,
     discount_amount: isQuotation ? 0 : data.discount_amount,
     notes: !isQuotation && notesEnabled ? data.notes || undefined : undefined,
     show_bank_details: !isQuotation && (data.payment_method==="تحويل بنكي" || (collectPayment && payments.some((payment)=>payment.payment_method_name==="تحويل بنكي"))),

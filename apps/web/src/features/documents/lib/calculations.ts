@@ -16,12 +16,13 @@ export function calcItemSubtotal(
 }
 
 export interface DocumentTotals {
-  subtotal: number          // مجموع البنود قبل الضريبة
+  subtotal: number          // مجموع البنود بعد خصومات البنود
   discount_amount: number   // خصم المستند
-  retention_amount: number  // استقطاع
+  retention_amount: number  // حجز ضمان الأعمال
   taxable_amount: number    // الوعاء الضريبي
   vat_amount: number        // ضريبة القيمة المضافة
-  total: number             // الإجمالي الكلي
+  total: number             // إجمالي الفاتورة شامل الضريبة وقبل حجز الضمان
+  payable_amount: number    // صافي المطلوب بعد حجز الضمان
 }
 
 /**
@@ -30,7 +31,7 @@ export interface DocumentTotals {
  * @param vatRate       - نسبة الضريبة (15 افتراضياً)
  * @param vatInclusive  - هل الأسعار شاملة الضريبة؟
  * @param discountAmt   - مبلغ الخصم على مستوى المستند
- * @param retentionAmt  - مبلغ الاستقطاع
+ * @param retentionAmt  - مبلغ حجز الضمان قبل الخصم الإضافي
  */
 export function calcDocumentTotals(
   items: Array<{ subtotal: number }>,
@@ -41,17 +42,21 @@ export function calcDocumentTotals(
 ): DocumentTotals {
   const subtotal = round2(Math.max(0, items.reduce((s, i) => s + i.subtotal, 0)))
   const safeDiscount = round2(Math.min(subtotal, Math.max(0, discountAmt)))
-  const safeRetention = round2(Math.min(subtotal - safeDiscount, Math.max(0, retentionAmt)))
-  const taxable = round2(Math.max(0, subtotal - safeDiscount - safeRetention))
+  const discountRatio = subtotal > 0 ? (subtotal - safeDiscount) / subtotal : 1
+  const safeRetention = round2(Math.min(subtotal - safeDiscount, Math.max(0, retentionAmt) * discountRatio))
+  const amountAfterDiscount = round2(Math.max(0, subtotal - safeDiscount))
 
   let vatAmount: number
+  let taxable: number
   let total: number
 
   if (vatInclusive) {
     // الأسعار شاملة — نستخرج الضريبة بالخلف
-    vatAmount = round2(taxable * vatRate / (100 + vatRate))
-    total = taxable
+    vatAmount = round2(amountAfterDiscount * vatRate / (100 + vatRate))
+    taxable = round2(amountAfterDiscount - vatAmount)
+    total = amountAfterDiscount
   } else {
+    taxable = amountAfterDiscount
     vatAmount = round2(taxable * vatRate / 100)
     total = round2(taxable + vatAmount)
   }
@@ -63,6 +68,7 @@ export function calcDocumentTotals(
     taxable_amount: taxable,
     vat_amount: vatAmount,
     total,
+    payable_amount: round2(Math.max(0, total - safeRetention)),
   }
 }
 
