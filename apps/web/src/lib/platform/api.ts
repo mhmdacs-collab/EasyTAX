@@ -58,16 +58,18 @@ export type CentralReceipt = {
   id:string; customer_id?:string; number:string; receipt_date:string; amount:number|string
   payment_method_name:string; payer_name:string; payer_phone?:string; payer_email?:string; payer_vat_number?:string
   reference_number?:string; notes?:string; organization_snapshot:Record<string,unknown>
-  show_stamp:boolean; show_signature:boolean; issued_at:string; created_at:string
+  show_stamp:boolean; show_signature:boolean; issued_at:string; created_at:string; status:"issued"|"cancelled"
+  cancelled_at?:string; cancellation_reason?:string; source_document_id?:string
 }
 export type ReceiptInput = {
   customer_id?:string; payer_name?:string; payer_phone?:string; payer_email?:string; payer_vat_number?:string
   amount:number; payment_method_name:string; receipt_date:string; reference_number?:string; notes?:string
-  show_stamp:boolean; show_signature:boolean
+  show_stamp:boolean; show_signature:boolean; request_id?:string
 }
 export const listReceipts = () => request<{receipts:CentralReceipt[]}>("/receipts")
 export const fetchReceipt = (id:string) => request<{receipt:CentralReceipt}>(`/receipts/${id}`)
 export const createReceipt = (input:ReceiptInput) => request<{receipt:CentralReceipt}>("/receipts",{method:"POST",body:JSON.stringify(input)})
+export const cancelReceipt = (id:string,reason:string) => request<{receipt:CentralReceipt}>(`/receipts/${id}/cancel`,{method:"POST",body:JSON.stringify({reason})})
 
 export type SettingsPayload = {
   organization: Record<string, string | number | boolean | null>
@@ -105,8 +107,9 @@ export type DocumentDraftInput = {
 export const createDocumentDraft = (input: DocumentDraftInput) => request<{ document_id: string }>("/documents", { method: "POST", body: JSON.stringify(input) })
 export const updateDocumentDraft = (id: string, input: DocumentDraftInput) => request<{ document_id: string }>(`/documents/${id}`, { method: "PUT", body: JSON.stringify(input) })
 export const issueDocumentDraft = (id: string) => request<{ document: { id: string; number: string } }>(`/documents/${id}/issue`, { method: "POST" })
+export const cancelDocument = (id:string,reason:string) => request<{document:CentralDocument}>(`/documents/${id}/cancel`,{method:"POST",body:JSON.stringify({reason})})
 export type CentralDocument = {
-  id:string; type:"invoice"|"quotation"; number:string; issue_date:string; due_date?:string; status:"draft"|"issued"|"paid"|"partially_paid"|"cancelled"
+  id:string; type:"invoice"|"quotation"; number:string; issue_date:string; due_date?:string; status:"draft"|"issued"|"paid"|"partially_paid"|"cancelled"; cancelled_at?:string; cancellation_reason?:string
   prices_include_tax:boolean; subtotal:number|string; discount_total:number|string; tax_total:number|string; retention_total:number|string; total:number|string; notes?:string
   show_bank_details:boolean; show_stamp:boolean; show_signature:boolean; reference_data:{ payment_method?:string; purchase_order?:string; reference_number?:string; show_totals?:boolean }
   customer_snapshot:CentralCustomer; organization_snapshot:Record<string,unknown>; created_at:string; updated_at:string

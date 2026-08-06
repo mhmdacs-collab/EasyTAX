@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { Link, useParams } from "@tanstack/react-router"
-import { Download, Mail, MessageCircle, Pencil, Printer, Share2 } from "lucide-react"
-import { fetchBrandingAssetUrl, fetchDocument, type BrandingAssetKind, type CentralDocument } from "@/lib/platform/api"
+import { Download, Mail, MessageCircle, Pencil, Printer, Share2, XCircle } from "lucide-react"
+import { cancelDocument, fetchBrandingAssetUrl, fetchDocument, type BrandingAssetKind, type CentralDocument } from "@/lib/platform/api"
 import { createInvoicePdf, downloadPdf, sharePdf } from "@/lib/pdf/invoicePdf"
 import { ZatcaQrCode } from "@/lib/zatca/ZatcaQrCode"
 import { Button } from "@/shared/components/ui/button"
@@ -31,6 +31,7 @@ export function DocumentViewPage() {
   const [creatingPdf, setCreatingPdf] = useState(false)
   const [assetUrls, setAssetUrls] = useState<Partial<Record<BrandingAssetKind, string>>>({})
   const printAreaRef = useRef<HTMLElement>(null)
+  const cancel=async()=>{const reason=window.prompt("سبب إلغاء المستند");if(!reason?.trim())return;try{const result=await cancelDocument(id,reason.trim());setDocument(result.document);toast({title:"تم إلغاء المستند",variant:"success"})}catch(error){toast({title:"تعذر إلغاء المستند",description:error instanceof Error?error.message:"حاول مرة أخرى",variant:"error"})}}
 
   useEffect(() => {
     void fetchDocument(id).then((result) => { setDocument(result.document) })
@@ -117,6 +118,7 @@ export function DocumentViewPage() {
               <Link to="/documents/$id/edit" params={{ id }}><Pencil className="size-4" />تعديل المسودة</Link>
             </Button>
           ) : null}
+          {document.status !== "draft"&&document.status!=="cancelled"?<Button variant="outline" className="gap-2 text-destructive" onClick={()=>{void cancel()}}><XCircle className="size-4"/>إلغاء المستند</Button>:null}
           <Button variant="outline" className="gap-2" onClick={() => { window.print() }}>
             <Printer className="size-4" />طباعة / PDF
           </Button>
@@ -131,7 +133,7 @@ export function DocumentViewPage() {
         <header className="flex justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold">{isQuotation?"عرض سعر":"فاتورة ضريبية"}</h1>
-            <p className="font-mono text-primary">{document.status === "draft" ? "مسودة غير صادرة" : document.number}</p>
+            <p className="font-mono text-primary">{document.status === "draft" ? "مسودة غير صادرة" : document.number}</p>{document.status==="cancelled"?<p className="mt-2 font-bold text-destructive">مستند ملغى</p>:null}
           </div>
           <div className="flex items-start gap-4">{assetUrls.logo ? <img src={assetUrls.logo} alt="شعار المنشأة" className="h-[5.5rem] w-[8.8rem] object-contain" /> : null}<div className="text-end text-sm"><p>{formatDate(document.issue_date)}</p><p className="text-muted-foreground">{document.status === "issued" ? "صادرة" : "مسودة"}</p></div></div>
         </header>
@@ -168,6 +170,7 @@ export function DocumentViewPage() {
         {isQuotation&&(document.terms?.length??0)>0?<div className="mt-6 border-t pt-4"><p className="font-medium">الشروط والأحكام</p><ol className="mt-2 list-decimal space-y-1 pe-5 text-sm text-muted-foreground">{document.terms?.map((term,index)=><li key={index}>{term}</li>)}</ol></div>:null}
         {document.show_bank_details && seller.iban ? <Info label="الحساب البنكي" value={[seller.bank_name, seller.bank_account_name, seller.iban].filter(Boolean).join(" · ")} ltr /> : null}
         {document.notes ? <div className="mt-6 border-t pt-4"><p className="font-medium">ملاحظات</p><p className="whitespace-pre-wrap text-sm text-muted-foreground">{document.notes}</p></div> : null}
+        {document.status==="cancelled"?<div className="mt-6 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"><strong>سبب الإلغاء:</strong> {document.cancellation_reason}</div>:null}
         {(document.show_stamp && assetUrls.stamp) || (document.show_signature && assetUrls.signature) ? <div className="mt-8 flex justify-end gap-8 border-t pt-5">{document.show_stamp && assetUrls.stamp ? <img src={assetUrls.stamp} alt="ختم المنشأة" className="h-[7.7rem] w-44 object-contain" /> : null}{document.show_signature && assetUrls.signature ? <img src={assetUrls.signature} alt="توقيع المنشأة" className="h-[7.7rem] w-44 object-contain" /> : null}</div> : null}
       </article>
     </div>

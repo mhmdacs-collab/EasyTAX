@@ -31,6 +31,7 @@ export function NewReceiptPage() {
   const [hasStamp,setHasStamp]=useState(false)
   const [hasSignature,setHasSignature]=useState(false)
   const [saving,setSaving]=useState(false)
+  const [requestId]=useState(()=>crypto.randomUUID())
 
   useEffect(()=>{void Promise.all([listCustomers(),fetchSettings()]).then(([customerResult,settings])=>{
     setCustomers(customerResult.customers)
@@ -47,7 +48,7 @@ export function NewReceiptPage() {
     if((registered&&!customerId)||(!registered&&!payerName.trim())||value<=0||!method||!date){toast({title:"أكمل الحقول المطلوبة",description:"حدد الدافع والمبلغ وطريقة السداد والتاريخ.",variant:"error"});return}
     setSaving(true)
     try{
-      const result=await createReceipt({customer_id:registered?customerId:undefined,payer_name:registered?undefined:payerName,payer_phone:registered?undefined:payerPhone,payer_email:registered?undefined:payerEmail,payer_vat_number:registered?undefined:payerVat,amount:value,payment_method_name:method,receipt_date:date,reference_number:reference||undefined,notes:notes||undefined,show_stamp:showStamp,show_signature:showSignature})
+      const result=await createReceipt({customer_id:registered?customerId:undefined,payer_name:registered?undefined:payerName,payer_phone:registered?undefined:payerPhone,payer_email:registered?undefined:payerEmail,payer_vat_number:registered?undefined:payerVat,amount:value,payment_method_name:method,receipt_date:date,reference_number:reference||undefined,notes:notes||undefined,show_stamp:showStamp,show_signature:showSignature,request_id:requestId})
       toast({title:`تم إصدار سند القبض رقم ${result.receipt.number}`,variant:"success"})
       await navigate({to:"/receipts/$id",params:{id:result.receipt.id}})
     }catch(error){toast({title:"تعذر إصدار سند القبض",description:error instanceof Error?error.message:"حاول مرة أخرى",variant:"error"})}finally{setSaving(false)}

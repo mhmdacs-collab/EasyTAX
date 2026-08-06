@@ -1,9 +1,9 @@
-import { randomUUID } from "node:crypto"
 import { Hono } from "hono"
 import { z } from "zod"
 import { zValidator } from "@hono/zod-validator"
 import { auth } from "../lib/auth"
 import { sql, withTransaction } from "../lib/db"
+import { issueReceipt } from "../lib/receiptService"
 
 export const receiptsRouter = new Hono()
 
@@ -29,6 +29,7 @@ const receiptSchema = z.object({
   notes: optionalText,
   show_stamp: z.boolean().default(false),
   show_signature: z.boolean().default(false),
+  request_id: z.string().uuid().optional(),
 }).superRefine((body, context) => {
   if (!body.customer_id && !body.payer_name?.trim()) context.addIssue({ code: "custom", path: ["payer_name"], message: "اسم المستلم منه مطلوب" })
 })
@@ -36,7 +37,7 @@ const receiptSchema = z.object({
 receiptsRouter.get("/", async (c) => {
   const orgId = await organizationId(c.req.raw.headers)
   if (!orgId) return c.json({ error: "غير مصرح" }, 401)
-  const receipts = await sql`SELECT id,customer_id,number,receipt_date,amount,payment_method_name,payer_name,payer_phone,payer_email,payer_vat_number,reference_number,created_at FROM customer_receipts WHERE organization_id=${orgId} ORDER BY receipt_date DESC,created_at DESC`
+  const receipts = await sql`SELECT id,customer_id,number,receipt_date,amount,payment_method_name,payer_name,payer_phone,payer_email,payer_vat_number,reference_number,status,cancelled_at,cancellation_reason,source_document_id,created_at FROM customer_receipts WHERE organization_id=${orgId} ORDER BY receipt_date DESC,created_at DESC`
   return c.json({ receipts })
 })
 
@@ -64,21 +65,35 @@ receiptsRouter.post("/", zValidator("json", receiptSchema), async (c) => {
       if (!customer) return { error: "CUSTOMER_NOT_FOUND" as const }
     }
 
-    await client.query("INSERT INTO document_sequences(organization_id,document_type,next_number) VALUES($1,'receipt',1) ON CONFLICT(organization_id,document_type) DO NOTHING", [orgId])
-    const sequence = await client.query(`SELECT GREATEST(ds.next_number,COALESCE((SELECT MAX(number::bigint)+1 FROM customer_receipts WHERE organization_id=$1 AND number ~ '^\\d+$'),1)) AS candidate FROM document_sequences ds WHERE ds.organization_id=$1 AND ds.document_type='receipt' FOR UPDATE`, [orgId])
-    const candidate = Number(sequence.rows[0].candidate)
-    const number = String(candidate).padStart(5, "0")
-    await client.query("UPDATE document_sequences SET next_number=$1 WHERE organization_id=$2 AND document_type='receipt'", [candidate + 1, orgId])
-
     const payerName = String(customer?.name ?? body.payer_name ?? "").trim()
     const payerPhone = String(customer?.phone ?? body.payer_phone ?? "").trim() || null
     const payerEmail = String(customer?.email ?? body.payer_email ?? "").trim() || null
     const payerVat = String(customer?.vat_number ?? body.payer_vat_number ?? "").trim() || null
-    const receipt = await client.query(`INSERT INTO customer_receipts(id,organization_id,customer_id,number,receipt_date,amount,payment_method_name,payer_name,payer_phone,payer_email,payer_vat_number,reference_number,notes,organization_snapshot,show_stamp,show_signature)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`, [randomUUID(), orgId, body.customer_id || null, number, body.receipt_date, body.amount, body.payment_method_name, payerName, payerPhone, payerEmail, payerVat, body.reference_number || null, body.notes || null, JSON.stringify(organization.rows[0]), body.show_stamp, body.show_signature])
-    return { receipt: receipt.rows[0] }
+    const receipt=await issueReceipt(client,{organizationId:orgId,customerId:body.customer_id||null,payerName,payerPhone,payerEmail,payerVatNumber:payerVat,receiptDate:body.receipt_date,amount:body.amount,paymentMethodName:body.payment_method_name,referenceNumber:body.reference_number||null,notes:body.notes||null,organizationSnapshot:organization.rows[0] as Record<string,unknown>,showStamp:body.show_stamp,showSignature:body.show_signature,requestId:body.request_id||null})
+    return { receipt }
   })
   if ("receipt" in result) return c.json(result, 201)
   const messages = { CUSTOMER_NOT_FOUND: "العميل غير موجود", PAYMENT_METHOD_NOT_FOUND: "طريقة السداد غير متاحة", ORGANIZATION_NOT_FOUND: "المنشأة غير موجودة" } as const
   return c.json({ error: messages[result.error] }, 400)
+})
+
+const cancelSchema=z.object({reason:z.string().trim().min(3).max(500)})
+receiptsRouter.post("/:id/cancel",zValidator("json",cancelSchema),async(c)=>{
+  const orgId=await organizationId(c.req.raw.headers);if(!orgId)return c.json({error:"غير مصرح"},401)
+  const reason=c.req.valid("json").reason
+  const result=await withTransaction(async(client)=>{
+    const receipt=await client.query("SELECT * FROM customer_receipts WHERE id=$1 AND organization_id=$2 FOR UPDATE",[c.req.param("id"),orgId])
+    const row=receipt.rows[0] as Record<string,unknown>|undefined
+    if(!row)return {error:"NOT_FOUND" as const}
+    if(row.status!=="issued")return {error:"ALREADY_CANCELLED" as const}
+    const cancelled=await client.query("UPDATE customer_receipts SET status='cancelled',cancelled_at=NOW(),cancellation_reason=$1,updated_at=NOW() WHERE id=$2 RETURNING *",[reason,row.id])
+    if(row.source_payment_id){
+      await client.query("UPDATE document_payments SET is_collected=FALSE WHERE id=$1",[row.source_payment_id])
+      await client.query(`UPDATE documents SET collected_total=GREATEST(0,collected_total-$1),due_total=due_total+$1,updated_at=NOW(),sync_version=sync_version+1 WHERE id=$2`,[row.amount,row.source_document_id])
+    }
+    await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,reason,snapshot) VALUES($1,'receipt',$2,'reversed',$3,$4)",[orgId,row.id,reason,JSON.stringify(cancelled.rows[0])])
+    return {receipt:cancelled.rows[0]}
+  })
+  if("receipt" in result)return c.json(result)
+  return c.json({error:result.error==="NOT_FOUND"?"سند القبض غير موجود":"سند القبض ملغى مسبقًا"},result.error==="NOT_FOUND"?404:409)
 })

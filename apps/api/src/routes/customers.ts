@@ -1,9 +1,9 @@
 import { Hono } from "hono"
-import { randomUUID } from "node:crypto"
 import { z } from "zod"
 import { zValidator } from "@hono/zod-validator"
 import { auth } from "../lib/auth"
 import { sql, withTransaction } from "../lib/db"
+import { issueReceipt } from "../lib/receiptService"
 
 export const customersRouter = new Hono()
 async function organizationId(headers: Headers): Promise<string | null> {
@@ -69,11 +69,12 @@ customersRouter.get("/:id/account", async (c) => {
     FROM document_payments dp JOIN documents d ON d.id=dp.document_id
     WHERE d.organization_id=${orgId} AND d.customer_id=${customerId} AND d.type='invoice'
       AND d.status IN ('issued','paid','partially_paid') AND d.deleted_at IS NULL AND dp.is_collected=TRUE
+      AND NOT EXISTS (SELECT 1 FROM customer_receipts linked WHERE linked.source_payment_id=dp.id)
     UNION ALL
     SELECT 'receipt' AS kind,cr.id AS source_id,cr.number,cr.receipt_date AS event_date,cr.created_at,
       0::numeric,0::numeric,cr.amount,NULL::text,cr.payment_method_name,cr.reference_number
     FROM customer_receipts cr
-    WHERE cr.organization_id=${orgId} AND cr.customer_id=${customerId}
+    WHERE cr.organization_id=${orgId} AND cr.customer_id=${customerId} AND cr.status='issued'
     ORDER BY event_date,created_at,kind
   `
   let balance = 0
@@ -97,13 +98,7 @@ customersRouter.post("/:id/receipts", zValidator("json", receiptSchema), async (
     const customer=await client.query("SELECT * FROM customers WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL",[customerId,orgId])
     if(!customer.rows[0])return null
     const organization=await client.query("SELECT * FROM organizations WHERE id=$1 AND deleted_at IS NULL",[orgId])
-    await client.query("INSERT INTO document_sequences(organization_id,document_type,next_number) VALUES($1,'receipt',1) ON CONFLICT(organization_id,document_type) DO NOTHING",[orgId])
-    const sequence=await client.query("SELECT next_number FROM document_sequences WHERE organization_id=$1 AND document_type='receipt' FOR UPDATE",[orgId])
-    const candidate=Number(sequence.rows[0].next_number),number=String(candidate).padStart(5,"0")
-    await client.query("UPDATE document_sequences SET next_number=$1 WHERE organization_id=$2 AND document_type='receipt'",[candidate+1,orgId])
-    const receipt=await client.query(`INSERT INTO customer_receipts(id,organization_id,customer_id,number,receipt_date,amount,payment_method_name,payer_name,payer_phone,payer_email,payer_vat_number,reference_number,notes,organization_snapshot)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,[randomUUID(),orgId,customerId,number,body.receipt_date,body.amount,body.payment_method_name,customer.rows[0].name,customer.rows[0].phone||null,customer.rows[0].email||null,customer.rows[0].vat_number||null,body.reference_number||null,body.notes||null,JSON.stringify(organization.rows[0]??{})])
-    return receipt.rows[0]
+    return issueReceipt(client,{organizationId:orgId,customerId,payerName:String(customer.rows[0].name),payerPhone:customer.rows[0].phone||null,payerEmail:customer.rows[0].email||null,payerVatNumber:customer.rows[0].vat_number||null,receiptDate:body.receipt_date,amount:body.amount,paymentMethodName:body.payment_method_name,referenceNumber:body.reference_number||null,notes:body.notes||null,organizationSnapshot:(organization.rows[0]??{}) as Record<string,unknown>,showStamp:false,showSignature:false})
   })
   return result?c.json({receipt:result},201):c.json({error:"العميل غير موجود"},404)
 })
