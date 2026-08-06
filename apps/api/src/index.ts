@@ -8,6 +8,7 @@ import { subscriptionRouter } from "./routes/subscription";
 import { adminRouter } from "./routes/admin";
 import { bootstrapRouter } from "./routes/bootstrap";
 import { settingsRouter } from "./routes/settings";
+import { assetsRouter } from "./routes/assets";
 import { customersRouter } from "./routes/customers";
 import { documentsRouter } from "./routes/documents";
 
@@ -104,6 +105,7 @@ app.route("/api/v1/subscription", subscriptionRouter);
 app.route("/api/v1/admin", adminRouter);
 app.route("/api/v1/bootstrap", bootstrapRouter);
 app.route("/api/v1/settings", settingsRouter);
+app.route("/api/v1/assets", assetsRouter);
 app.route("/api/v1/customers", customersRouter);
 app.route("/api/v1/documents", documentsRouter);
 

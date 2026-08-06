@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { Link, useParams } from "@tanstack/react-router"
 import { Download, Mail, MessageCircle, Pencil, Printer, Share2 } from "lucide-react"
-import { fetchDocument, type CentralDocument } from "@/lib/platform/api"
+import { fetchBrandingAssetUrl, fetchDocument, type BrandingAssetKind, type CentralDocument } from "@/lib/platform/api"
 import { createInvoicePdf, downloadPdf, sharePdf } from "@/lib/pdf/invoicePdf"
 import { ZatcaQrCode } from "@/lib/zatca/ZatcaQrCode"
 import { Button } from "@/shared/components/ui/button"
@@ -21,17 +21,21 @@ type OrganizationSnapshot = {
   bank_name?: string
   bank_account_name?: string
   iban?: string
+  stamp_on_invoice?: boolean
+  signature_on_invoice?: boolean
 }
 
 export function DocumentViewPage() {
   const { id } = useParams({ from: "/app/documents/$id" })
   const [document, setDocument] = useState<CentralDocument>()
   const [creatingPdf, setCreatingPdf] = useState(false)
+  const [assetUrls, setAssetUrls] = useState<Partial<Record<BrandingAssetKind, string>>>({})
   const printAreaRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     void fetchDocument(id).then((result) => { setDocument(result.document) })
   }, [id])
+  useEffect(() => { void Promise.all((["logo", "stamp", "signature"] as const).map(async (kind) => { const url = await fetchBrandingAssetUrl(kind); if (url) setAssetUrls((current) => ({ ...current, [kind]: url })) })) }, [])
 
   if (!document) return <p className="p-6 text-muted-foreground">جاري تحميل المستند...</p>
 
@@ -121,7 +125,7 @@ export function DocumentViewPage() {
             <h1 className="text-2xl font-bold">فاتورة ضريبية</h1>
             <p className="font-mono text-primary">{document.status === "draft" ? "مسودة غير صادرة" : document.number}</p>
           </div>
-          <div className="text-end text-sm"><p>{formatDate(document.issue_date)}</p><p className="text-muted-foreground">{document.status === "issued" ? "صادرة" : "مسودة"}</p></div>
+          <div className="flex items-start gap-4">{assetUrls.logo ? <img src={assetUrls.logo} alt="شعار المنشأة" className="h-16 w-24 object-contain" /> : null}<div className="text-end text-sm"><p>{formatDate(document.issue_date)}</p><p className="text-muted-foreground">{document.status === "issued" ? "صادرة" : "مسودة"}</p></div></div>
         </header>
         <Separator className="my-5" />
 
@@ -151,6 +155,7 @@ export function DocumentViewPage() {
         {document.reference_data.payment_method ? <Info label="طريقة السداد" value={document.reference_data.payment_method} /> : null}
         {document.show_bank_details && seller.iban ? <Info label="الحساب البنكي" value={[seller.bank_name, seller.bank_account_name, seller.iban].filter(Boolean).join(" · ")} ltr /> : null}
         {document.notes ? <div className="mt-6 border-t pt-4"><p className="font-medium">ملاحظات</p><p className="whitespace-pre-wrap text-sm text-muted-foreground">{document.notes}</p></div> : null}
+        {(document.show_stamp && seller.stamp_on_invoice && assetUrls.stamp) || (document.show_signature && seller.signature_on_invoice && assetUrls.signature) ? <div className="mt-8 flex justify-end gap-8 border-t pt-5">{document.show_stamp && seller.stamp_on_invoice && assetUrls.stamp ? <img src={assetUrls.stamp} alt="ختم المنشأة" className="h-24 w-32 object-contain" /> : null}{document.show_signature && seller.signature_on_invoice && assetUrls.signature ? <img src={assetUrls.signature} alt="توقيع المنشأة" className="h-24 w-32 object-contain" /> : null}</div> : null}
       </article>
     </div>
   )

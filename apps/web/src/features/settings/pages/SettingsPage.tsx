@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
-import { Building2, CreditCard, FileText, Landmark, Save } from "lucide-react"
+import { Building2, CreditCard, FileText, Landmark, Palette, Save } from "lucide-react"
+import { BrandingSettings } from "../components/BrandingSettings"
 import { fetchSettings, saveSettings, type SettingsPayload } from "@/lib/platform/api"
 import { Button } from "@/shared/components/ui/button"
 import { Input } from "@/shared/components/ui/input"
@@ -7,10 +8,11 @@ import { Label } from "@/shared/components/ui/label"
 import { Textarea } from "@/shared/components/ui/textarea"
 import { toast } from "@/shared/hooks/useToast"
 
-type Form = { [key: string]: unknown; payment_methods: SettingsPayload["payment_methods"]; quotation_terms: string[]; invoice: number; quotation: number; receipt: number }
+export type Form = { [key: string]: unknown; payment_methods: SettingsPayload["payment_methods"]; quotation_terms: string[]; invoice: number; quotation: number; receipt: number }
 const tabs = [
   ["organization", "بيانات المنشأة", Building2], ["address", "العنوان والتواصل", Landmark],
   ["bank", "الحساب البنكي", CreditCard], ["documents", "إعدادات المستندات", FileText],
+  ["branding", "الهوية البصرية", Palette],
 ] as const
 
 export default function SettingsPage() {
@@ -36,6 +38,8 @@ export default function SettingsPage() {
     retention_enabled:Boolean(form.retention_enabled),invoice_default_notes:form.invoice_default_notes,
     quotation_default_notes:form.quotation_default_notes,receipt_default_notes:form.receipt_default_notes,
     receipt_default_phrase:form.receipt_default_phrase,payment_methods:form.payment_methods,quotation_terms:form.quotation_terms,
+    stamp_on_invoice:Boolean(form.stamp_on_invoice),stamp_on_quotation:Boolean(form.stamp_on_quotation),stamp_on_receipt:Boolean(form.stamp_on_receipt),
+    signature_on_invoice:Boolean(form.signature_on_invoice),signature_on_quotation:Boolean(form.signature_on_quotation),signature_on_receipt:Boolean(form.signature_on_receipt),
     sequences:{invoice:form.invoice,quotation:form.quotation,receipt:form.receipt},
   });toast({title:"تم الحفظ",description:"حُفظت الإعدادات مركزيًا",variant:"success"})}catch(e){toast({title:"تعذر الحفظ",description:e instanceof Error?e.message:"حاول مرة أخرى",variant:"error"})}finally{setSaving(false)}}
   return <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6" dir="rtl">
@@ -58,6 +62,7 @@ export default function SettingsPage() {
         {active==="documents"&&<><h2 className="text-lg font-semibold">الضريبة والمستندات</h2><div className="grid gap-3 sm:grid-cols-2"><Check label="الأسعار شاملة ضريبة القيمة المضافة 15%" checked={Boolean(form.prices_include_tax)} onChange={(v)=>{ set("prices_include_tax",v); }}/><Check label="تفعيل حجز ضمان الأعمال" checked={Boolean(form.retention_enabled)} onChange={(v)=>{ set("retention_enabled",v); }}/></div>
           <div><h3 className="mb-3 font-medium">عدادات المستندات</h3><div className="grid gap-4 sm:grid-cols-3">{field("invoice","عداد الفاتورة",{required:true,dir:"ltr"})}{field("quotation","عداد عرض السعر",{required:true,dir:"ltr"})}{field("receipt","عداد سند القبض / الاستلام",{required:true,dir:"ltr"})}</div><p className="mt-2 text-xs text-muted-foreground">القيمة الافتراضية 00001، ويُحجز الرقم النهائي عند الإصدار فقط.</p></div>
           <div className="space-y-2"><Label>قالب عام لشروط عروض الأسعار</Label><Textarea rows={6} value={form.quotation_terms.join("\n")} onChange={(e)=>{ setForm({...form,quotation_terms:e.target.value.split("\n").filter(Boolean)}); }}/><p className="text-xs text-muted-foreground">كل سطر بند مستقل ويمكن تعديله داخل العرض دون تغيير القالب.</p></div></>}
+        {active==="branding"&&<BrandingSettings form={form} setForm={setForm} />}
         <div className="flex justify-end border-t pt-4"><Button type="submit" loading={saving} className="gap-2"><Save className="size-4"/>حفظ التعديلات</Button></div>
       </form>
     </div>

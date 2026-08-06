@@ -35,6 +35,20 @@ export type SettingsPayload = {
 }
 export const fetchSettings = () => request<SettingsPayload>("/settings")
 export const saveSettings = (input: unknown) => request<{ ok: true }>("/settings", { method: "PUT", body: JSON.stringify(input) })
+export type BrandingAssetKind = "logo" | "stamp" | "signature"
+export async function uploadBrandingAsset(kind: BrandingAssetKind, file: File) {
+  const response = await fetch(`${API_URL}/api/v1/assets/${kind}`, { method: "PUT", body: file, credentials: "include", headers: { "Content-Type": "image/png" } })
+  if (!response.ok) { const body = await response.json().catch(() => ({})) as { error?: string }; throw new Error(body.error || "تعذر رفع الملف") }
+}
+export async function deleteBrandingAsset(kind: BrandingAssetKind) {
+  const response = await fetch(`${API_URL}/api/v1/assets/${kind}`, { method: "DELETE", credentials: "include" })
+  if (!response.ok) { const body = await response.json().catch(() => ({})) as { error?: string }; throw new Error(body.error || "تعذر حذف الملف") }
+}
+export async function fetchBrandingAssetUrl(kind: BrandingAssetKind) {
+  const response = await fetch(`${API_URL}/api/v1/assets/${kind}`, { credentials: "include", cache: "no-store" })
+  if (!response.ok) return null
+  return URL.createObjectURL(await response.blob())
+}
 
 export type DocumentDraftInput = {
   customer_id: string; issue_date: string; due_date?: string; prices_include_tax: boolean
@@ -49,7 +63,7 @@ export const issueDocumentDraft = (id: string) => request<{ document: { id: stri
 export type CentralDocument = {
   id:string; type:"invoice"; number:string; issue_date:string; due_date?:string; status:"draft"|"issued"|"cancelled"
   prices_include_tax:boolean; subtotal:number|string; discount_total:number|string; tax_total:number|string; retention_total:number|string; total:number|string; notes?:string
-  show_bank_details:boolean; reference_data:{ payment_method?:string; purchase_order?:string; reference_number?:string }
+  show_bank_details:boolean; show_stamp:boolean; show_signature:boolean; reference_data:{ payment_method?:string; purchase_order?:string; reference_number?:string }
   customer_snapshot:CentralCustomer; organization_snapshot:Record<string,unknown>; created_at:string; updated_at:string
   items?:Array<{id:string;description:string;unit?:string;quantity:number|string;unit_price:number|string;discount:number|string;tax_rate:number|string;retention_rate:number|string;line_subtotal:number|string;line_tax:number|string;line_retention:number|string;line_total:number|string}>
 }
