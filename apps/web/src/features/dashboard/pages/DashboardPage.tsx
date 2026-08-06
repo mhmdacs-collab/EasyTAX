@@ -48,7 +48,7 @@ export default function DashboardPage() {
     if (!documents) return null
     const now = new Date()
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
-    const issued = documents.filter((document) => document.status === "issued")
+    const issued = documents.filter((document) => document.type === "invoice" && document.status === "issued")
     const thisMonth = issued.filter((document) => new Date(document.issue_date).getTime() >= monthStart)
     return {
       totalRevenue: issued.reduce((sum, document) => sum + Number(document.total), 0),

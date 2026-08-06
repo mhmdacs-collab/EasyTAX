@@ -8,9 +8,10 @@ import type { DocumentFormData } from "./DocumentForm"
 
 interface Props {
   form: UseFormReturn<DocumentFormData>
+  isQuotation?: boolean
 }
 
-export function ItemsTable({ form }: Props) {
+export function ItemsTable({ form, isQuotation = false }: Props) {
   const { register, control } = form
   const { fields, append, remove } = useFieldArray({ control, name: "items" })
   const watchedItems = useWatch({ control, name: "items" })
@@ -31,8 +32,8 @@ export function ItemsTable({ form }: Props) {
               <th className="px-3 py-2.5 text-center font-medium text-muted-foreground w-[10%]">الوحدة</th>
               <th className="px-3 py-2.5 text-center font-medium text-muted-foreground w-[12%]">الكمية</th>
               <th className="px-3 py-2.5 text-center font-medium text-muted-foreground w-[15%]">سعر الوحدة</th>
-              <th className="px-3 py-2.5 text-center font-medium text-muted-foreground w-[10%]">خصم%</th>
-              <th className="px-3 py-2.5 text-center font-medium text-muted-foreground w-[10%]">ضمان%</th>
+              {!isQuotation&&<th className="px-3 py-2.5 text-center font-medium text-muted-foreground w-[10%]">خصم%</th>}
+              {!isQuotation&&<th className="px-3 py-2.5 text-center font-medium text-muted-foreground w-[10%]">ضمان%</th>}
               <th className="px-3 py-2.5 text-end font-medium text-muted-foreground w-[14%]">المجموع</th>
               <th className="w-[3%]" />
             </tr>
@@ -85,7 +86,7 @@ export function ItemsTable({ form }: Props) {
                       {...register(`items.${index}.unit_price`, { valueAsNumber: true })}
                     />
                   </td>
-                  <td className="px-2 py-1.5">
+                  {!isQuotation&&<td className="px-2 py-1.5">
                     <Input
                       type="number"
                       min="0"
@@ -94,8 +95,8 @@ export function ItemsTable({ form }: Props) {
                       className="border-0 shadow-none focus-visible:ring-0 bg-transparent text-center"
                       {...register(`items.${index}.discount_percent`, { setValueAs: (value) => Math.min(100, Math.max(0, Number(value) || 0)) })}
                     />
-                  </td>
-                  <td className="px-2 py-1.5"><Input type="number" min="0" max="100" step="0.1" aria-label="نسبة ضمان الأعمال" className="border-0 bg-transparent text-center shadow-none focus-visible:ring-0" {...register(`items.${index}.retention_percent`,{setValueAs:(value)=>Math.min(100,Math.max(0,Number(value)||0))})}/></td>
+                  </td>}
+                  {!isQuotation&&<td className="px-2 py-1.5"><Input type="number" min="0" max="100" step="0.1" aria-label="نسبة ضمان الأعمال" className="border-0 bg-transparent text-center shadow-none focus-visible:ring-0" {...register(`items.${index}.retention_percent`,{setValueAs:(value)=>Math.min(100,Math.max(0,Number(value)||0))})}/></td>}
                   <td className="px-3 py-1.5 text-end font-medium tabular-nums">
                     {formatCurrency(subtotal).replace("ر.س.‏", "").trim()}
                   </td>
