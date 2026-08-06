@@ -53,7 +53,7 @@ const settingsSchema = z.object({
   signature_on_invoice: z.boolean(), signature_on_quotation: z.boolean(), signature_on_receipt: z.boolean(),
   payment_methods: z.array(z.object({ name: z.string().trim().min(1), is_collected: z.boolean(), is_default: z.boolean(), is_active: z.boolean() })),
   quotation_terms: z.array(z.string().trim().min(1)),
-  sequences: z.object({ invoice: z.number().int().positive(), quotation: z.number().int().positive(), receipt: z.number().int().positive() }),
+  sequences: z.object({ invoice: z.coerce.number().int().positive(), quotation: z.coerce.number().int().positive(), receipt: z.coerce.number().int().positive() }),
 }).superRefine((value, ctx) => {
   if (!value.bank_enabled) return
   for (const key of ["bank_name", "bank_account_name", "iban"] as const) {

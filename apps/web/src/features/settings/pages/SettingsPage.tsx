@@ -21,13 +21,13 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   useEffect(() => { void fetchSettings().then((data) => {
     const o=data.organization, seq=Object.fromEntries(data.sequences.map((s) => [s.document_type, s.next_number]))
-    setForm({ ...o, payment_methods:data.payment_methods, quotation_terms:data.quotation_terms.map((t)=>t.text), invoice:seq.invoice||1, quotation:seq.quotation||1, receipt:seq.receipt||1 })
+    setForm({ ...o, payment_methods:data.payment_methods, quotation_terms:data.quotation_terms.map((t)=>t.text), invoice:Number(seq.invoice)||1, quotation:Number(seq.quotation)||1, receipt:Number(seq.receipt)||1 })
   }).catch((error:unknown)=>{ toast({title:"تعذر تحميل الإعدادات",description:error instanceof Error?error.message:"حاول مرة أخرى",variant:"error"}); }) }, [])
   if (!form) return <div className="p-6 text-muted-foreground">جاري تحميل الإعدادات...</div>
   const set=(key:string,value:string|boolean|number)=>{ setForm((current)=>current ? ({...current,[key]:value}) : current); }
   const field=(key:string,label:string, options?:{readOnly?:boolean;required?:boolean;dir?:"ltr"})=>{const value=form[key];return <div className="space-y-1.5">
     <Label htmlFor={key}>{label}{options?.required ? " *" : ""}</Label>
-    <Input id={key} value={typeof value==="string"||typeof value==="number"?String(value):""} readOnly={options?.readOnly} required={options?.required} dir={options?.dir} className={options?.readOnly?"bg-muted":""} onChange={(e)=>{ set(key,e.target.value); }} />
+    <Input id={key} value={typeof value==="string"||typeof value==="number"?String(value):""} readOnly={options?.readOnly} required={options?.required} dir={options?.dir} className={options?.readOnly?"bg-muted":""} onChange={(e)=>{ set(key,["invoice","quotation","receipt"].includes(key)?Number(e.target.value):e.target.value); }} />
   </div>}
   const submit=async()=>{setSaving(true);try{await saveSettings({
     commercial_registration:form.commercial_registration,phone:form.phone,email:form.email,
