@@ -54,7 +54,7 @@ export default function SettingsPage() {
         </div><p className="text-xs text-muted-foreground">اسم المنشأة والرقم الضريبي ومعرف النظام بيانات تأسيس ثابتة لا تُعدّل من هنا.</p></>}
         {active==="address"&&<><h2 className="text-lg font-semibold">العنوان الوطني والتواصل</h2><div className="grid gap-4 sm:grid-cols-2">
           {field("city","المدينة",{required:true})}{field("district","الحي",{required:true})}{field("street","اسم الشارع",{required:true})}
-          {field("building_number","رقم المبنى (4 أرقام)",{required:true,dir:"ltr"})}{field("postal_code","الرمز البريدي (5 أرقام)",{required:true,dir:"ltr"})}
+          {field("building_number","رقم المبنى (اختياري - 4 أرقام)",{dir:"ltr"})}{field("postal_code","الرمز البريدي (اختياري - 5 أرقام)",{dir:"ltr"})}
           {field("additional_number","الرقم الإضافي (اختياري)",{dir:"ltr"})}{field("short_address","العنوان الوطني المختصر (اختياري)",{dir:"ltr"})}
           {field("phone","رقم الجوال",{dir:"ltr"})}{field("email","البريد الإلكتروني",{dir:"ltr"})}
         </div><div className="grid gap-2 sm:grid-cols-2"><Check label="إظهار رقم الجوال في المستندات" checked={Boolean(form.show_phone_on_documents)} onChange={(v)=>{ set("show_phone_on_documents",v); }}/><Check label="إظهار البريد في المستندات" checked={Boolean(form.show_email_on_documents)} onChange={(v)=>{ set("show_email_on_documents",v); }}/></div></>}
