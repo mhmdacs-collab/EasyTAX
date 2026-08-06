@@ -41,6 +41,18 @@ export const listCustomers = () => request<{ customers: CentralCustomer[] }>("/c
 export const createCustomer = (input: CustomerInput) => request<{ customer: CentralCustomer }>("/customers", { method: "POST", body: JSON.stringify(input) })
 export const updateCustomer = (id: string, input: CustomerInput) => request<{ customer: CentralCustomer }>(`/customers/${id}`, { method: "PUT", body: JSON.stringify(input) })
 export const deleteCustomer = (id: string) => request<{ ok: true }>(`/customers/${id}`, { method: "DELETE" })
+export type CustomerAccountMovement = {
+  kind:"invoice"|"payment"|"receipt"; source_id:string; number:string; event_date:string
+  invoice_total:number; retention_total:number; received:number; balance:number
+  payment_method_name?:string; reference_number?:string
+}
+export type CustomerAccount = {
+  customer:{id:string;name:string;vat_number:string}
+  summary:{invoice_total:number;retention_total:number;received_total:number;balance:number}
+  movements:CustomerAccountMovement[]
+}
+export const fetchCustomerAccount = (id:string) => request<CustomerAccount>(`/customers/${id}/account`)
+export const createCustomerReceipt = (id:string,input:{amount:number;payment_method_name:string;receipt_date:string;reference_number?:string;notes?:string}) => request<{receipt:{id:string;number:string}}>(`/customers/${id}/receipts`,{method:"POST",body:JSON.stringify(input)})
 
 export type SettingsPayload = {
   organization: Record<string, string | number | boolean | null>

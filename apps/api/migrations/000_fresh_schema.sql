@@ -3,7 +3,7 @@ DROP SCHEMA IF EXISTS neon_auth CASCADE;
 
 DROP TABLE IF EXISTS
   sync_log, tax_returns, tax_periods, expenses, purchase_invoice_items,
-  purchase_invoices, expense_categories, document_terms, document_payments,
+  purchase_invoices, expense_categories, document_terms, customer_receipts, document_payments,
   document_items, documents, projects, catalog_items, suppliers, customers,
   document_sequences, quotation_terms, payment_methods, activation_tokens,
   subscriptions, subscription_events, organizations, admin_users, verification, session, account,
@@ -253,6 +253,18 @@ CREATE TABLE document_terms (
   document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
   text TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE customer_receipts (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  number TEXT NOT NULL, receipt_date DATE NOT NULL,
+  amount NUMERIC(18,4) NOT NULL CHECK (amount > 0), payment_method_name TEXT NOT NULL,
+  reference_number TEXT, notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (organization_id, number)
+);
+CREATE INDEX customer_receipts_customer_date_idx ON customer_receipts (organization_id, customer_id, receipt_date, created_at);
 
 CREATE TABLE zatca_connections (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
