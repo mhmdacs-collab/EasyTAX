@@ -21,5 +21,5 @@ export function DocumentEditPage() {
     vat_rate:15, vat_inclusive:document.prices_include_tax, notes:document.notes, payment_method:document.reference_data.payment_method,
     created_at:document.created_at, updated_at:document.updated_at, sync_status:"synced", version:1,
   }
-  return <DocumentForm draft={draft} initialAppearance={{show_stamp:document.show_stamp,show_signature:document.show_signature}} initialPayments={(document.payments??[]).map((payment)=>({payment_method_name:payment.payment_method_name,amount:Number(payment.amount)}))} initialTerms={document.terms??[]}/>
+  return <DocumentForm draft={draft} initialAppearance={{show_stamp:document.show_stamp,show_signature:document.show_signature}} initialPayments={(document.payments??[]).map((payment)=>({payment_method_name:payment.payment_method_name,amount:Number(payment.amount)}))} initialTerms={document.terms??[]} initialShowTotals={document.reference_data.show_totals!==false}/>
 }

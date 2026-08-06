@@ -42,6 +42,7 @@ export function DocumentViewPage() {
   const seller = document.organization_snapshot as OrganizationSnapshot
   const customer = document.customer_snapshot
   const isQuotation = document.type === "quotation"
+  const showTotals = !isQuotation || document.reference_data.show_totals !== false
   const hasUnits = document.items?.some((item) => Boolean(item.unit?.trim())) ?? false
   const sellerAddress = [seller.street, seller.building_number, seller.district, seller.city, seller.postal_code].filter(Boolean).join("، ")
   const customerAddress = [customer.street, customer.building_number, customer.district, customer.city, customer.postal_code].filter(Boolean).join("، ")
@@ -137,21 +138,21 @@ export function DocumentViewPage() {
 
         <div className="my-6 overflow-x-auto">
           <table className="w-full min-w-[620px] text-sm">
-            <thead><tr className="border-b bg-muted/30"><th className="p-2 text-start">البيان</th><th>الكمية</th>{hasUnits ? <th>الوحدة</th> : null}<th>السعر</th><th>الضريبة</th><th className="text-end">الإجمالي</th></tr></thead>
+            <thead><tr className="border-b bg-muted/30"><th className="p-2 text-start">البيان</th><th>الكمية</th>{hasUnits ? <th>الوحدة</th> : null}<th>السعر</th><th>الضريبة</th>{showTotals?<th className="text-end">الإجمالي</th>:null}</tr></thead>
             <tbody>{document.items?.map((item) => (
-              <tr key={item.id} className="border-b"><td className="p-2">{item.description}</td><td className="text-center">{item.quantity}</td>{hasUnits ? <td className="text-center">{item.unit || "—"}</td> : null}<td className="text-center">{formatCurrency(Number(item.unit_price))}</td><td className="text-center">{formatCurrency(Number(item.line_tax))}</td><td className="text-end">{formatCurrency(Number(item.line_total))}</td></tr>
+              <tr key={item.id} className="border-b"><td className="p-2">{item.description}</td><td className="text-center">{item.quantity}</td>{hasUnits ? <td className="text-center">{item.unit || "—"}</td> : null}<td className="text-center">{formatCurrency(Number(item.unit_price))}</td><td className="text-center">{formatCurrency(Number(item.line_tax))}</td>{showTotals?<td className="text-end">{formatCurrency(Number(item.line_total))}</td>:null}</tr>
             ))}</tbody>
           </table>
         </div>
 
-        <div className="ms-auto max-w-sm space-y-2 text-sm">
+        {showTotals?<div className="ms-auto max-w-sm space-y-2 text-sm">
           <Row label="المجموع قبل الضريبة" value={Number(document.subtotal)} />
           {Number(document.discount_total) > 0 ? <Row label="الخصم" value={-Number(document.discount_total)} /> : null}
           <Row label="ضريبة القيمة المضافة 15%" value={Number(document.tax_total)} />
           {Number(document.retention_total) > 0 ? <Row label="حجز ضمان الأعمال" value={-Number(document.retention_total)} /> : null}
           <Separator /><Row label="الإجمالي" value={Number(document.total)} bold />
           {(document.payments?.length ?? 0) > 0 ? <><Separator />{document.payments?.map((payment)=><Row key={payment.id} label={payment.payment_method_name} value={Number(payment.amount)}/>)}<Row label="المبلغ المستحق" value={Math.max(0,Number(document.total)-(document.payments??[]).reduce((sum,payment)=>sum+Number(payment.amount),0))} bold /></> : null}
-        </div>
+        </div>:<p className="mt-5 rounded-lg bg-muted/50 p-4 text-sm">جميع الأسعار المذكورة في العرض {document.prices_include_tax?"شاملة":"غير شاملة"} ضريبة القيمة المضافة 15%، وتُحدد الكميات والقيمة النهائية عند الطلب.</p>}
 
         {!isQuotation&&document.status === "issued" && seller.business_name && seller.vat_number ? <div className="mt-8 flex justify-center border-t pt-6"><ZatcaQrCode sellerName={seller.business_name} vatNumber={seller.vat_number} invoiceDateTime={document.updated_at} totalWithVat={Number(document.total) + Number(document.retention_total)} vatAmount={Number(document.tax_total)} size={176} /></div> : null}
         {!isQuotation&&document.reference_data.payment_method ? <Info label="طريقة السداد" value={document.reference_data.payment_method} /> : null}
