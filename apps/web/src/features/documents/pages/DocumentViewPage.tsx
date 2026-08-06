@@ -125,7 +125,7 @@ export function DocumentViewPage() {
             <h1 className="text-2xl font-bold">فاتورة ضريبية</h1>
             <p className="font-mono text-primary">{document.status === "draft" ? "مسودة غير صادرة" : document.number}</p>
           </div>
-          <div className="flex items-start gap-4">{assetUrls.logo ? <img src={assetUrls.logo} alt="شعار المنشأة" className="h-16 w-24 object-contain" /> : null}<div className="text-end text-sm"><p>{formatDate(document.issue_date)}</p><p className="text-muted-foreground">{document.status === "issued" ? "صادرة" : "مسودة"}</p></div></div>
+          <div className="flex items-start gap-4">{assetUrls.logo ? <img src={assetUrls.logo} alt="شعار المنشأة" className="h-20 w-32 object-contain" /> : null}<div className="text-end text-sm"><p>{formatDate(document.issue_date)}</p><p className="text-muted-foreground">{document.status === "issued" ? "صادرة" : "مسودة"}</p></div></div>
         </header>
         <Separator className="my-5" />
 
@@ -155,7 +155,7 @@ export function DocumentViewPage() {
         {document.reference_data.payment_method ? <Info label="طريقة السداد" value={document.reference_data.payment_method} /> : null}
         {document.show_bank_details && seller.iban ? <Info label="الحساب البنكي" value={[seller.bank_name, seller.bank_account_name, seller.iban].filter(Boolean).join(" · ")} ltr /> : null}
         {document.notes ? <div className="mt-6 border-t pt-4"><p className="font-medium">ملاحظات</p><p className="whitespace-pre-wrap text-sm text-muted-foreground">{document.notes}</p></div> : null}
-        {(document.show_stamp && seller.stamp_on_invoice && assetUrls.stamp) || (document.show_signature && seller.signature_on_invoice && assetUrls.signature) ? <div className="mt-8 flex justify-end gap-8 border-t pt-5">{document.show_stamp && seller.stamp_on_invoice && assetUrls.stamp ? <img src={assetUrls.stamp} alt="ختم المنشأة" className="h-24 w-32 object-contain" /> : null}{document.show_signature && seller.signature_on_invoice && assetUrls.signature ? <img src={assetUrls.signature} alt="توقيع المنشأة" className="h-24 w-32 object-contain" /> : null}</div> : null}
+        {(document.show_stamp && seller.stamp_on_invoice && assetUrls.stamp) || (document.show_signature && seller.signature_on_invoice && assetUrls.signature) ? <div className="mt-8 flex justify-end gap-8 border-t pt-5">{document.show_stamp && seller.stamp_on_invoice && assetUrls.stamp ? <img src={assetUrls.stamp} alt="ختم المنشأة" className="h-28 w-40 object-contain" /> : null}{document.show_signature && seller.signature_on_invoice && assetUrls.signature ? <img src={assetUrls.signature} alt="توقيع المنشأة" className="h-28 w-40 object-contain" /> : null}</div> : null}
       </article>
     </div>
   )
