@@ -4,6 +4,11 @@ import { fetchDocument, type CentralDocument } from "@/lib/platform/api"
 import type { Document } from "@/lib/db"
 import { DocumentForm } from "../components/DocumentForm"
 
+function toDiscountPercent(quantity: number, unitPrice: number, discount: number) {
+  const gross = quantity * unitPrice
+  return gross > 0 ? Math.min(100, Math.max(0, discount / gross * 100)) : 0
+}
+
 export function DocumentEditPage() {
   const { id } = useParams({ from: "/app/documents/$id/edit" })
   const [document, setDocument] = useState<CentralDocument>()
@@ -16,7 +21,8 @@ export function DocumentEditPage() {
     date:document.issue_date, due_date:document.due_date, customer_id:customer.id, customer_name:customer.name,
     customer_vat_number:customer.vat_number, customer_phone:customer.phone, customer_email:customer.email,
     customer_address:[customer.street,customer.building_number,customer.district,customer.city,customer.postal_code].filter(Boolean).join("، "), operation_type:"service",
-    items:(document.items??[]).map((item)=>({id:item.id,description:item.description,unit:item.unit,quantity:Number(item.quantity),unit_price:Number(item.unit_price),discount_percent:0,retention_percent:Number(item.retention_rate),subtotal:Number(item.line_subtotal)})),
+    reference_number:document.reference_data.reference_number, purchase_order:document.reference_data.purchase_order,
+    items:(document.items??[]).map((item)=>{const quantity=Number(item.quantity),unitPrice=Number(item.unit_price);return {id:item.id,description:item.description,unit:item.unit,quantity,unit_price:unitPrice,discount_percent:toDiscountPercent(quantity,unitPrice,Number(item.discount)),retention_percent:Number(item.retention_rate),subtotal:Number(item.line_subtotal)}}),
     subtotal:Number(document.subtotal), discount_amount:Number(document.discount_total), retention_amount:Number(document.retention_total), vat_amount:Number(document.tax_total), total:Number(document.total),
     vat_rate:15, vat_inclusive:document.prices_include_tax, notes:document.notes, payment_method:document.reference_data.payment_method,
     created_at:document.created_at, updated_at:document.updated_at, sync_status:"synced", version:1,

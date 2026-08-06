@@ -82,8 +82,8 @@ export interface Project {
   name: string;
   customer_id?: string;
   contract_number?: string;
-  purchase_order?: string;
   reference_number?: string;
+  purchase_order?: string;
   notes?: string;
   is_active: boolean;
   created_at: string;
@@ -126,6 +126,7 @@ export interface Document {
   project_id?: string;
   project_name?: string;
   contract_number?: string;
+  reference_number?: string;
   purchase_order?: string;
   items: DocumentItem[];
   subtotal: number;
