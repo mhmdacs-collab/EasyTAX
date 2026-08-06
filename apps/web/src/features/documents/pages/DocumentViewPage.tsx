@@ -44,6 +44,12 @@ export function DocumentViewPage() {
   const isQuotation = document.type === "quotation"
   const showTotals = !isQuotation || document.reference_data.show_totals !== false
   const hasUnits = document.items?.some((item) => Boolean(item.unit?.trim())) ?? false
+  const hasLineDiscounts = document.items?.some((item) => Number(item.discount) > 0) ?? false
+  const hasRetentions = document.items?.some((item) => Number(item.retention_rate) > 0) ?? false
+  const grossItemsTotal = document.items?.reduce((sum,item)=>sum+Number(item.quantity)*Number(item.unit_price),0) ?? 0
+  const lineDiscountTotal = document.items?.reduce((sum,item)=>sum+Number(item.discount),0) ?? 0
+  const collectedTotal = document.payments?.reduce((sum,payment)=>sum+Number(payment.amount),0) ?? 0
+  const amountDue = Math.max(0,Number(document.total)-Number(document.retention_total)-collectedTotal)
   const sellerAddress = [seller.street, seller.building_number, seller.district, seller.city, seller.postal_code].filter(Boolean).join("، ")
   const customerAddress = [customer.street, customer.building_number, customer.district, customer.city, customer.postal_code].filter(Boolean).join("، ")
   const organizationName = seller.business_name ?? "المنشأة"
@@ -138,20 +144,23 @@ export function DocumentViewPage() {
 
         <div className="my-6 overflow-x-auto">
           <table className="w-full min-w-[620px] text-sm">
-            <thead><tr className="border-b bg-muted/30"><th className="p-2 text-start">البيان</th><th>الكمية</th>{hasUnits ? <th>الوحدة</th> : null}<th>السعر</th><th>الضريبة</th>{showTotals?<th className="text-end">الإجمالي</th>:null}</tr></thead>
+            <thead><tr className="border-b bg-muted/30"><th className="p-2 text-start">البيان</th><th>الكمية</th>{hasUnits ? <th>الوحدة</th> : null}<th>السعر</th>{hasLineDiscounts?<th>خصم %</th>:null}{hasRetentions?<th>ضمان الأعمال %</th>:null}{showTotals?<th className="text-end">الإجمالي</th>:null}</tr></thead>
             <tbody>{document.items?.map((item) => (
-              <tr key={item.id} className="border-b"><td className="p-2">{item.description}</td><td className="text-center">{item.quantity}</td>{hasUnits ? <td className="text-center">{item.unit || "—"}</td> : null}<td className="text-center">{formatCurrency(Number(item.unit_price))}</td><td className="text-center">{formatCurrency(Number(item.line_tax))}</td>{showTotals?<td className="text-end">{formatCurrency(Number(item.line_total))}</td>:null}</tr>
+              <tr key={item.id} className="border-b"><td className="p-2">{item.description}</td><td className="text-center">{item.quantity}</td>{hasUnits ? <td className="text-center">{item.unit || "—"}</td> : null}<td className="text-center">{formatCurrency(Number(item.unit_price))}</td>{hasLineDiscounts?<td className="text-center">{Number(item.discount)>0?`${((Number(item.discount)/(Number(item.quantity)*Number(item.unit_price)))*100).toFixed(2).replace(/\.00$/,"")}%`:"—"}</td>:null}{hasRetentions?<td className="text-center">{Number(item.retention_rate)>0?`${Number(item.retention_rate)}%`:"—"}</td>:null}{showTotals?<td className="text-end">{formatCurrency(Number(item.line_total))}</td>:null}</tr>
             ))}</tbody>
           </table>
         </div>
 
         {showTotals?<div className="ms-auto max-w-sm space-y-2 text-sm">
-          <Row label="المجموع قبل الضريبة" value={Number(document.subtotal)} />
-          {Number(document.discount_total) > 0 ? <Row label="الخصم" value={-Number(document.discount_total)} /> : null}
+          <Row label="إجمالي البنود قبل الخصم" value={grossItemsTotal} />
+          {lineDiscountTotal > 0 ? <Row label="خصومات البنود" value={lineDiscountTotal} /> : null}
+          {Number(document.discount_total) > 0 ? <Row label="خصم على الفاتورة" value={Number(document.discount_total)} /> : null}
+          <Row label="الوعاء الضريبي" value={Number(document.total)-Number(document.tax_total)} />
           <Row label="ضريبة القيمة المضافة 15%" value={Number(document.tax_total)} />
           <Separator /><Row label="إجمالي الفاتورة" value={Number(document.total)} bold />
-          {Number(document.retention_total) > 0 ? <><Row label="حجز ضمان الأعمال" value={-Number(document.retention_total)} /><Row label="صافي المطلوب" value={Number(document.total)-Number(document.retention_total)} bold /></> : null}
-          {(document.payments?.length ?? 0) > 0 ? <><Separator />{document.payments?.map((payment)=><Row key={payment.id} label={payment.payment_method_name} value={Number(payment.amount)}/>)}<Row label="المبلغ المستحق" value={Math.max(0,Number(document.total)-Number(document.retention_total)-(document.payments??[]).reduce((sum,payment)=>sum+Number(payment.amount),0))} bold /></> : null}
+          {Number(document.retention_total) > 0 ? <Row label="حجز ضمان الأعمال" value={Number(document.retention_total)} /> : null}
+          {(document.payments?.length ?? 0) > 0 ? <><Separator />{document.payments?.map((payment)=><Row key={payment.id} label={`دفعة مستلمة — ${payment.payment_method_name}`} value={Number(payment.amount)}/>)}</> : null}
+          {(Number(document.retention_total)>0 || collectedTotal>0)?<Row label="المبلغ المستحق" value={amountDue} bold />:null}
         </div>:<p className="mt-5 rounded-lg bg-muted/50 p-4 text-sm">جميع الأسعار المذكورة في العرض {document.prices_include_tax?"شاملة":"غير شاملة"} ضريبة القيمة المضافة 15%، وتُحدد الكميات والقيمة النهائية عند الطلب.</p>}
 
         {!isQuotation&&document.status === "issued" && seller.business_name && seller.vat_number ? <div className="mt-8 flex justify-center border-t pt-6"><ZatcaQrCode sellerName={seller.business_name} vatNumber={seller.vat_number} invoiceDateTime={document.updated_at} totalWithVat={Number(document.total)} vatAmount={Number(document.tax_total)} size={176} /></div> : null}
