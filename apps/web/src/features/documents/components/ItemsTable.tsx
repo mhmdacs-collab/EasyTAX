@@ -90,10 +90,10 @@ export function ItemsTable({ form }: Props) {
                       max="100"
                       step="0.1"
                       className="border-0 shadow-none focus-visible:ring-0 bg-transparent text-center"
-                      {...register(`items.${index}.discount_percent`, { valueAsNumber: true })}
+                      {...register(`items.${index}.discount_percent`, { setValueAs: (value) => Math.min(100, Math.max(0, Number(value) || 0)) })}
                     />
                   </td>
-                  <td className="px-2 py-1.5"><Input type="number" min="0" max="100" step="0.1" aria-label="نسبة ضمان الأعمال" className="border-0 bg-transparent text-center shadow-none focus-visible:ring-0" {...register(`items.${index}.retention_percent`,{valueAsNumber:true})}/></td>
+                  <td className="px-2 py-1.5"><Input type="number" min="0" max="100" step="0.1" aria-label="نسبة ضمان الأعمال" className="border-0 bg-transparent text-center shadow-none focus-visible:ring-0" {...register(`items.${index}.retention_percent`,{setValueAs:(value)=>Math.min(100,Math.max(0,Number(value)||0))})}/></td>
                   <td className="px-3 py-1.5 text-end font-medium tabular-nums">
                     {formatCurrency(subtotal).replace("ر.س.‏", "").trim()}
                   </td>

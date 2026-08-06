@@ -11,7 +11,8 @@ export function calcItemSubtotal(
   discountPercent = 0
 ): number {
   const base = unitPrice * quantity
-  return round2(base * (1 - discountPercent / 100))
+  const safeDiscountPercent = Math.min(100, Math.max(0, discountPercent))
+  return round2(Math.max(0, base * (1 - safeDiscountPercent / 100)))
 }
 
 export interface DocumentTotals {
@@ -38,8 +39,10 @@ export function calcDocumentTotals(
   discountAmt = 0,
   retentionAmt = 0
 ): DocumentTotals {
-  const subtotal = round2(items.reduce((s, i) => s + i.subtotal, 0))
-  const taxable = round2(subtotal - discountAmt - retentionAmt)
+  const subtotal = round2(Math.max(0, items.reduce((s, i) => s + i.subtotal, 0)))
+  const safeDiscount = round2(Math.min(subtotal, Math.max(0, discountAmt)))
+  const safeRetention = round2(Math.min(subtotal - safeDiscount, Math.max(0, retentionAmt)))
+  const taxable = round2(Math.max(0, subtotal - safeDiscount - safeRetention))
 
   let vatAmount: number
   let total: number
@@ -55,8 +58,8 @@ export function calcDocumentTotals(
 
   return {
     subtotal,
-    discount_amount: round2(discountAmt),
-    retention_amount: round2(retentionAmt),
+    discount_amount: safeDiscount,
+    retention_amount: safeRetention,
     taxable_amount: taxable,
     vat_amount: vatAmount,
     total,
