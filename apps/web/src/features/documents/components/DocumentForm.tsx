@@ -1,5 +1,5 @@
 ﻿import { useState } from "react"
-import { useForm } from "react-hook-form"
+import { useForm, type FieldErrors } from "react-hook-form"
 import { useEffect } from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -58,6 +58,19 @@ const docSchema = z.object({
 })
 
 export type DocumentFormData = z.infer<typeof docSchema>
+
+const findFirstValidationError = (errors: FieldErrors<DocumentFormData>): string => {
+  const visit = (value: unknown): string | undefined => {
+    if (!value || typeof value !== "object") return undefined
+    if ("message" in value && typeof value.message === "string") return value.message
+    for (const child of Object.values(value)) {
+      const message = visit(child)
+      if (message) return message
+    }
+    return undefined
+  }
+  return visit(errors) ?? "راجع الحقول المطلوبة ثم حاول مرة أخرى"
+}
 
 interface Props {
   initialType?: DocumentType
@@ -167,6 +180,17 @@ export function DocumentForm({ initialType = "tax_invoice", draft, initialAppear
     items: data.items.map((item) => ({ description:item.description,unit:item.unit,quantity:item.quantity,unit_price:item.unit_price,discount_percent:isQuotation?0:item.discount_percent,retention_percent:isQuotation||!retentionEnabled?0:item.retention_percent })),
   })
 
+  const showValidationError = (errors: FieldErrors<DocumentFormData>) => {
+    toast({
+      title: "تعذر المتابعة",
+      description: findFirstValidationError(errors),
+      variant: "error",
+    })
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>("[data-document-error='true']")?.scrollIntoView({ behavior: "smooth", block: "center" })
+    })
+  }
+
   const saveDraft = form.handleSubmit(async (data) => {
     setIsSaving(true)
     try {
@@ -180,7 +204,7 @@ export function DocumentForm({ initialType = "tax_invoice", draft, initialAppear
     } finally {
       setIsSaving(false)
     }
-  })
+  }, showValidationError)
 
   const issueDocument = form.handleSubmit(async (data) => {
     setIsIssuing(true)
@@ -194,7 +218,7 @@ export function DocumentForm({ initialType = "tax_invoice", draft, initialAppear
     } finally {
       setIsIssuing(false)
     }
-  })
+  }, showValidationError)
 
   const changePaymentCollection = (enabled: boolean) => {
     setCollectPayment(enabled)
@@ -267,7 +291,7 @@ export function DocumentForm({ initialType = "tax_invoice", draft, initialAppear
         </div>
 
         {/* To (customer) */}
-        <div className="rounded-lg border p-4">
+        <div className="rounded-lg border p-4" data-document-error={(form.formState.errors.customer_name || form.formState.errors.customer_id) ? "true" : undefined}>
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">إلى</p>
           <CustomerSelector
             values={{
@@ -285,19 +309,24 @@ export function DocumentForm({ initialType = "tax_invoice", draft, initialAppear
           {form.formState.errors.customer_name && (
             <p className="mt-1 text-xs text-destructive">{form.formState.errors.customer_name.message}</p>
           )}
+          {form.formState.errors.customer_id && (
+            <p className="mt-1 text-xs text-destructive">{form.formState.errors.customer_id.message}</p>
+          )}
         </div>
       </div>
 
       {/* ── Document meta ── */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-document-error={form.formState.errors.date ? "true" : undefined}>
           <Label htmlFor="date">تاريخ المستند *</Label>
-          <Input id="date" type="date" dir="ltr" {...register("date")} />
+          <Input id="date" type="date" dir="ltr" aria-invalid={Boolean(form.formState.errors.date)} {...register("date")} />
           <p className="text-xs text-muted-foreground">يظهر في المستند بصيغة YYYY/MM/DD</p>
+          {form.formState.errors.date && <p className="text-xs text-destructive">{form.formState.errors.date.message}</p>}
         </div>
-        {!isQuotation&&<div className="space-y-1.5">
+        {!isQuotation&&<div className="space-y-1.5" data-document-error={form.formState.errors.due_date ? "true" : undefined}>
           <Label htmlFor="due_date">تاريخ الاستحقاق</Label>
-          <Input id="due_date" type="date" dir="ltr" {...register("due_date")} />
+          <Input id="due_date" type="date" dir="ltr" aria-invalid={Boolean(form.formState.errors.due_date)} {...register("due_date")} />
+          {form.formState.errors.due_date && <p className="text-xs text-destructive">{form.formState.errors.due_date.message}</p>}
         </div>}
         {!isQuotation&&<div className="space-y-1.5">
           <Label htmlFor="reference_number">رقم المرجع</Label>
@@ -312,7 +341,7 @@ export function DocumentForm({ initialType = "tax_invoice", draft, initialAppear
       <Separator />
 
       {/* ── Items ── */}
-      <div>
+      <div data-document-error={form.formState.errors.items ? "true" : undefined}>
         <p className="mb-3 text-sm font-semibold">البنود</p>
         <ItemsTable form={form} isQuotation={isQuotation} retentionEnabled={retentionEnabled} showLineTotals={!isQuotation||!quotationPriceList} />
         {form.formState.errors.items?.root && (
