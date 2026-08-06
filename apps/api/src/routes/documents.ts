@@ -21,12 +21,14 @@ const itemSchema = z.object({
   discount_percent: z.number().min(0).max(100).default(0), retention_percent: z.number().min(0).max(100).default(0),
 })
 const draftSchema = z.object({
+  type: z.enum(["invoice", "quotation"]).default("invoice"),
   customer_id: z.string().min(1), issue_date: z.string().date(), due_date: z.string().date().optional().or(z.literal("")),
   prices_include_tax: z.boolean(), retention_basis: z.enum(["before_tax", "including_tax"]).optional(),
   discount_amount: z.number().nonnegative().default(0), notes: z.string().optional(),
   show_bank_details: z.boolean().default(false), show_stamp: z.boolean().default(false), show_signature: z.boolean().default(false),
   reference_data: z.object({ purchase_order: z.string().optional(), reference_number: z.string().optional(), payment_method: z.string().optional() }).default({}),
   payments: z.array(z.object({ payment_method_name: z.string().trim().min(1), amount: z.number().positive() })).default([]),
+  terms: z.array(z.string().trim().min(1)).default([]),
   items: z.array(itemSchema).min(1),
 })
 
@@ -61,7 +63,7 @@ documentsRouter.get("/", async (c) => {
 documentsRouter.get("/:id", async (c) => {
   const organizationId = await getOrganizationId(c.req.raw.headers)
   if (!organizationId) return c.json({ error: "غير مصرح" }, 401)
-  const rows = await sql`SELECT d.*, COALESCE(json_agg(di ORDER BY di.sort_order) FILTER (WHERE di.id IS NOT NULL),'[]'::json) AS items, COALESCE((SELECT json_agg(dp ORDER BY dp.created_at) FROM document_payments dp WHERE dp.document_id=d.id),'[]'::json) AS payments FROM documents d LEFT JOIN document_items di ON di.document_id=d.id WHERE d.id=${c.req.param("id")} AND d.organization_id=${organizationId} AND d.deleted_at IS NULL GROUP BY d.id`
+  const rows = await sql`SELECT d.*, COALESCE(json_agg(di ORDER BY di.sort_order) FILTER (WHERE di.id IS NOT NULL),'[]'::json) AS items, COALESCE((SELECT json_agg(dp ORDER BY dp.created_at) FROM document_payments dp WHERE dp.document_id=d.id),'[]'::json) AS payments, COALESCE((SELECT json_agg(dt.text ORDER BY dt.sort_order) FROM document_terms dt WHERE dt.document_id=d.id),'[]'::json) AS terms FROM documents d LEFT JOIN document_items di ON di.document_id=d.id WHERE d.id=${c.req.param("id")} AND d.organization_id=${organizationId} AND d.deleted_at IS NULL GROUP BY d.id`
   return rows[0] ? c.json({ document: rows[0] }) : c.json({ error: "المستند غير موجود" }, 404)
 })
 
@@ -74,15 +76,17 @@ async function saveDraft(organizationId: string, id: string, body: z.infer<typeo
     const customer = await client.query("SELECT * FROM customers WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL", [body.customer_id, organizationId])
     if (!customer.rows[0]) return { error: "CUSTOMER_NOT_FOUND" as const }
     if (update) {
-      const changed = await client.query(`UPDATE documents SET customer_id=$1,issue_date=$2,due_date=$3,prices_include_tax=$4,retention_basis=$5,subtotal=$6,discount_total=$7,tax_total=$8,retention_total=$9,total=$10,collected_total=$11,due_total=$12,show_bank_details=$13,show_stamp=$14,show_signature=$15,notes=$16,reference_data=$17,customer_snapshot=$18,updated_at=NOW(),sync_version=sync_version+1 WHERE id=$19 AND organization_id=$20 AND status='draft' AND deleted_at IS NULL RETURNING id`, [body.customer_id,body.issue_date,body.due_date||null,body.prices_include_tax,body.retention_basis||null,totals.subtotal,body.discount_amount,totals.taxTotal,totals.retentionTotal,totals.total,collectedTotal,dueTotal,body.show_bank_details,body.show_stamp,body.show_signature,body.notes||null,JSON.stringify(body.reference_data),JSON.stringify(customer.rows[0]),id,organizationId])
+      const changed = await client.query(`UPDATE documents SET type=$1,customer_id=$2,issue_date=$3,due_date=$4,prices_include_tax=$5,retention_basis=$6,subtotal=$7,discount_total=$8,tax_total=$9,retention_total=$10,total=$11,collected_total=$12,due_total=$13,show_bank_details=$14,show_stamp=$15,show_signature=$16,notes=$17,reference_data=$18,customer_snapshot=$19,updated_at=NOW(),sync_version=sync_version+1 WHERE id=$20 AND organization_id=$21 AND status='draft' AND deleted_at IS NULL RETURNING id`, [body.type,body.customer_id,body.issue_date,body.due_date||null,body.prices_include_tax,body.retention_basis||null,totals.subtotal,body.discount_amount,totals.taxTotal,totals.retentionTotal,totals.total,collectedTotal,dueTotal,body.show_bank_details,body.show_stamp,body.show_signature,body.notes||null,JSON.stringify(body.reference_data),JSON.stringify(customer.rows[0]),id,organizationId])
       if (!changed.rows[0]) return { error: "DRAFT_NOT_EDITABLE" as const }
       await client.query("DELETE FROM document_items WHERE document_id=$1", [id])
       await client.query("DELETE FROM document_payments WHERE document_id=$1", [id])
+      await client.query("DELETE FROM document_terms WHERE document_id=$1", [id])
     } else {
-      await client.query(`INSERT INTO documents(id,organization_id,customer_id,type,number,issue_date,due_date,status,prices_include_tax,retention_basis,subtotal,discount_total,tax_total,retention_total,total,collected_total,due_total,show_bank_details,show_stamp,show_signature,notes,reference_data,customer_snapshot) VALUES($1,$2,$3,'invoice',$4,$5,$6,'draft',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`, [id,organizationId,body.customer_id,`DRAFT-${id}`,body.issue_date,body.due_date||null,body.prices_include_tax,body.retention_basis||null,totals.subtotal,body.discount_amount,totals.taxTotal,totals.retentionTotal,totals.total,collectedTotal,dueTotal,body.show_bank_details,body.show_stamp,body.show_signature,body.notes||null,JSON.stringify(body.reference_data),JSON.stringify(customer.rows[0])])
+      await client.query(`INSERT INTO documents(id,organization_id,customer_id,type,number,issue_date,due_date,status,prices_include_tax,retention_basis,subtotal,discount_total,tax_total,retention_total,total,collected_total,due_total,show_bank_details,show_stamp,show_signature,notes,reference_data,customer_snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,'draft',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`, [id,organizationId,body.customer_id,body.type,`DRAFT-${id}`,body.issue_date,body.due_date||null,body.prices_include_tax,body.retention_basis||null,totals.subtotal,body.discount_amount,totals.taxTotal,totals.retentionTotal,totals.total,collectedTotal,dueTotal,body.show_bank_details,body.show_stamp,body.show_signature,body.notes||null,JSON.stringify(body.reference_data),JSON.stringify(customer.rows[0])])
     }
     for (const line of totals.lines) await client.query(`INSERT INTO document_items(document_id,description,unit,quantity,unit_price,discount,tax_rate,retention_rate,line_subtotal,line_tax,line_retention,line_total,sort_order) VALUES($1,$2,$3,$4,$5,$6,15,$7,$8,$9,$10,$11,$12)`, [id,line.description,line.unit||null,line.quantity,line.unit_price,line.discount,line.retention_percent,line.line_subtotal,line.line_tax,line.line_retention,line.line_total,line.sort_order])
     for (const payment of body.payments) await client.query(`INSERT INTO document_payments(document_id,payment_method_id,payment_method_name,amount,is_collected,paid_at) VALUES($1,(SELECT id FROM payment_methods WHERE organization_id=$2 AND name=$3 AND is_active=TRUE LIMIT 1),$3,$4,TRUE,NOW())`, [id,organizationId,payment.payment_method_name,payment.amount])
+    for (const [sortOrder, term] of body.terms.entries()) await client.query(`INSERT INTO document_terms(document_id,text,sort_order) VALUES($1,$2,$3)`, [id,term,sortOrder])
     return { id }
   })
 }
@@ -105,7 +109,7 @@ documentsRouter.post("/:id/issue", async (c) => {
   const organizationId = await getOrganizationId(c.req.raw.headers)
   if (!organizationId) return c.json({ error: "غير مصرح" }, 401)
   const result = await withTransaction(async (client) => {
-    const draft = await client.query("SELECT id FROM documents WHERE id=$1 AND organization_id=$2 AND status='draft' AND deleted_at IS NULL FOR UPDATE", [c.req.param("id"), organizationId])
+    const draft = await client.query("SELECT id,type FROM documents WHERE id=$1 AND organization_id=$2 AND status='draft' AND deleted_at IS NULL FOR UPDATE", [c.req.param("id"), organizationId])
     if (!draft.rows[0]) return null
     const organization = await client.query("SELECT * FROM organizations WHERE id=$1", [organizationId])
     const seller = organization.rows[0] as Record<string, unknown> | undefined
@@ -113,11 +117,12 @@ documentsRouter.post("/:id/issue", async (c) => {
     if (!seller || requiredSellerFields.some((field) => !String(seller[field] ?? "").trim())) {
       return { error: "SELLER_PROFILE_INCOMPLETE" as const }
     }
-    await client.query(`INSERT INTO document_sequences(organization_id,document_type,next_number) VALUES($1,'invoice',1) ON CONFLICT(organization_id,document_type) DO NOTHING`, [organizationId])
-    const sequence = await client.query(`SELECT GREATEST(ds.next_number,COALESCE((SELECT MAX(number::bigint)+1 FROM documents WHERE organization_id=$1 AND type='invoice' AND number ~ '^\\d+$'),1)) AS candidate FROM document_sequences ds WHERE ds.organization_id=$1 AND ds.document_type='invoice' FOR UPDATE`, [organizationId])
+    const documentType = draft.rows[0].type as "invoice" | "quotation"
+    await client.query(`INSERT INTO document_sequences(organization_id,document_type,next_number) VALUES($1,$2,1) ON CONFLICT(organization_id,document_type) DO NOTHING`, [organizationId,documentType])
+    const sequence = await client.query(`SELECT GREATEST(ds.next_number,COALESCE((SELECT MAX(number::bigint)+1 FROM documents WHERE organization_id=$1 AND type=$2 AND number ~ '^\\d+$'),1)) AS candidate FROM document_sequences ds WHERE ds.organization_id=$1 AND ds.document_type=$2 FOR UPDATE`, [organizationId,documentType])
     const candidate = Number(sequence.rows[0].candidate)
     const number = String(candidate).padStart(5,"0")
-    await client.query("UPDATE document_sequences SET next_number=$1 WHERE organization_id=$2 AND document_type='invoice'", [candidate+1,organizationId])
+    await client.query("UPDATE document_sequences SET next_number=$1 WHERE organization_id=$2 AND document_type=$3", [candidate+1,organizationId,documentType])
     const issued = await client.query(`UPDATE documents SET number=$1,status='issued',uuid=$2,issue_time=LOCALTIME,organization_snapshot=$3,updated_at=NOW(),sync_version=sync_version+1 WHERE id=$4 RETURNING id,number`, [number,randomUUID(),JSON.stringify(organization.rows[0]),c.req.param("id")])
     return issued.rows[0] as { id:string; number:string }
   })

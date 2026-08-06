@@ -9,6 +9,7 @@ import type { DocumentFormData } from "./DocumentForm"
 interface Props {
   form: UseFormReturn<DocumentFormData>
   children?: ReactNode
+  isQuotation?: boolean
 }
 
 function TotalRow({ label, value, bold }: { label: string; value: number; bold?: boolean }) {
@@ -20,7 +21,7 @@ function TotalRow({ label, value, bold }: { label: string; value: number; bold?:
   )
 }
 
-export function TotalsSection({ form, children }: Props) {
+export function TotalsSection({ form, children, isQuotation = false }: Props) {
   const { register, control, setValue } = form
   const [watchedItems, vatRate, vatInclusive, discountAmount] = useWatch({ control, name: ["items", "vat_rate", "vat_inclusive", "discount_amount"] })
   const retentionAmount = watchedItems.reduce((sum,item)=>sum+calcItemSubtotal(item.unit_price||0,item.quantity||0,item.discount_percent||0)*(item.retention_percent||0)/100,0)
@@ -43,7 +44,7 @@ export function TotalsSection({ form, children }: Props) {
       <TotalRow label="المجموع الفرعي" value={totals.subtotal} />
 
       {/* Optional discount */}
-      <div className="flex items-center gap-3">
+      {!isQuotation&&<div className="flex items-center gap-3">
         <span className="shrink-0 text-sm text-muted-foreground">خصم (ر.س)</span>
         <Input
           type="number"
@@ -54,7 +55,7 @@ export function TotalsSection({ form, children }: Props) {
           className="h-8 text-sm"
           {...register("discount_amount", { valueAsNumber: true })}
         />
-      </div>
+      </div>}
 
       <Separator />
 
