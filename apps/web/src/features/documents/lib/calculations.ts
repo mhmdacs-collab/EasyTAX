@@ -85,6 +85,8 @@ export const DOCUMENT_TYPE_PREFIX = {
 export const DOCUMENT_STATUS_LABELS = {
   draft: "مسودة",
   issued: "صادرة",
+  paid: "مدفوعة",
+  partially_paid: "مدفوعة جزئيًا",
   archived: "مؤرشفة",
   cancelled: "ملغاة",
 } as const
@@ -92,6 +94,8 @@ export const DOCUMENT_STATUS_LABELS = {
 export const DOCUMENT_STATUS_COLORS = {
   draft: "secondary",
   issued: "success",
+  paid: "success",
+  partially_paid: "secondary",
   archived: "outline",
   cancelled: "destructive",
 } as const satisfies Record<string, "secondary" | "success" | "outline" | "destructive">

@@ -26,6 +26,7 @@ const draftSchema = z.object({
   discount_amount: z.number().nonnegative().default(0), notes: z.string().optional(),
   show_bank_details: z.boolean().default(false), show_stamp: z.boolean().default(false), show_signature: z.boolean().default(false),
   reference_data: z.object({ purchase_order: z.string().optional(), reference_number: z.string().optional(), payment_method: z.string().optional() }).default({}),
+  payments: z.array(z.object({ payment_method_name: z.string().trim().min(1), amount: z.number().positive() })).default([]),
   items: z.array(itemSchema).min(1),
 })
 
@@ -60,23 +61,28 @@ documentsRouter.get("/", async (c) => {
 documentsRouter.get("/:id", async (c) => {
   const organizationId = await getOrganizationId(c.req.raw.headers)
   if (!organizationId) return c.json({ error: "غير مصرح" }, 401)
-  const rows = await sql`SELECT d.*, COALESCE(json_agg(di ORDER BY di.sort_order) FILTER (WHERE di.id IS NOT NULL),'[]'::json) AS items FROM documents d LEFT JOIN document_items di ON di.document_id=d.id WHERE d.id=${c.req.param("id")} AND d.organization_id=${organizationId} AND d.deleted_at IS NULL GROUP BY d.id`
+  const rows = await sql`SELECT d.*, COALESCE(json_agg(di ORDER BY di.sort_order) FILTER (WHERE di.id IS NOT NULL),'[]'::json) AS items, COALESCE((SELECT json_agg(dp ORDER BY dp.created_at) FROM document_payments dp WHERE dp.document_id=d.id),'[]'::json) AS payments FROM documents d LEFT JOIN document_items di ON di.document_id=d.id WHERE d.id=${c.req.param("id")} AND d.organization_id=${organizationId} AND d.deleted_at IS NULL GROUP BY d.id`
   return rows[0] ? c.json({ document: rows[0] }) : c.json({ error: "المستند غير موجود" }, 404)
 })
 
 async function saveDraft(organizationId: string, id: string, body: z.infer<typeof draftSchema>, update: boolean) {
   const totals = calculate(body)
+  const collectedTotal = Math.round(body.payments.reduce((sum, payment) => sum + payment.amount, 0) * 100) / 100
+  if (collectedTotal > totals.total) return { error: "PAYMENTS_EXCEED_TOTAL" as const }
+  const dueTotal = Math.round((totals.total - collectedTotal) * 100) / 100
   return withTransaction(async (client) => {
     const customer = await client.query("SELECT * FROM customers WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL", [body.customer_id, organizationId])
     if (!customer.rows[0]) return { error: "CUSTOMER_NOT_FOUND" as const }
     if (update) {
-      const changed = await client.query(`UPDATE documents SET customer_id=$1,issue_date=$2,due_date=$3,prices_include_tax=$4,retention_basis=$5,subtotal=$6,discount_total=$7,tax_total=$8,retention_total=$9,total=$10,due_total=$10,show_bank_details=$11,show_stamp=$12,show_signature=$13,notes=$14,reference_data=$15,customer_snapshot=$16,updated_at=NOW(),sync_version=sync_version+1 WHERE id=$17 AND organization_id=$18 AND status='draft' AND deleted_at IS NULL RETURNING id`, [body.customer_id,body.issue_date,body.due_date||null,body.prices_include_tax,body.retention_basis||null,totals.subtotal,body.discount_amount,totals.taxTotal,totals.retentionTotal,totals.total,body.show_bank_details,body.show_stamp,body.show_signature,body.notes||null,JSON.stringify(body.reference_data),JSON.stringify(customer.rows[0]),id,organizationId])
+      const changed = await client.query(`UPDATE documents SET customer_id=$1,issue_date=$2,due_date=$3,prices_include_tax=$4,retention_basis=$5,subtotal=$6,discount_total=$7,tax_total=$8,retention_total=$9,total=$10,collected_total=$11,due_total=$12,show_bank_details=$13,show_stamp=$14,show_signature=$15,notes=$16,reference_data=$17,customer_snapshot=$18,updated_at=NOW(),sync_version=sync_version+1 WHERE id=$19 AND organization_id=$20 AND status='draft' AND deleted_at IS NULL RETURNING id`, [body.customer_id,body.issue_date,body.due_date||null,body.prices_include_tax,body.retention_basis||null,totals.subtotal,body.discount_amount,totals.taxTotal,totals.retentionTotal,totals.total,collectedTotal,dueTotal,body.show_bank_details,body.show_stamp,body.show_signature,body.notes||null,JSON.stringify(body.reference_data),JSON.stringify(customer.rows[0]),id,organizationId])
       if (!changed.rows[0]) return { error: "DRAFT_NOT_EDITABLE" as const }
       await client.query("DELETE FROM document_items WHERE document_id=$1", [id])
+      await client.query("DELETE FROM document_payments WHERE document_id=$1", [id])
     } else {
-      await client.query(`INSERT INTO documents(id,organization_id,customer_id,type,number,issue_date,due_date,status,prices_include_tax,retention_basis,subtotal,discount_total,tax_total,retention_total,total,due_total,show_bank_details,show_stamp,show_signature,notes,reference_data,customer_snapshot) VALUES($1,$2,$3,'invoice',$4,$5,$6,'draft',$7,$8,$9,$10,$11,$12,$13,$13,$14,$15,$16,$17,$18,$19)`, [id,organizationId,body.customer_id,`DRAFT-${id}`,body.issue_date,body.due_date||null,body.prices_include_tax,body.retention_basis||null,totals.subtotal,body.discount_amount,totals.taxTotal,totals.retentionTotal,totals.total,body.show_bank_details,body.show_stamp,body.show_signature,body.notes||null,JSON.stringify(body.reference_data),JSON.stringify(customer.rows[0])])
+      await client.query(`INSERT INTO documents(id,organization_id,customer_id,type,number,issue_date,due_date,status,prices_include_tax,retention_basis,subtotal,discount_total,tax_total,retention_total,total,collected_total,due_total,show_bank_details,show_stamp,show_signature,notes,reference_data,customer_snapshot) VALUES($1,$2,$3,'invoice',$4,$5,$6,'draft',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`, [id,organizationId,body.customer_id,`DRAFT-${id}`,body.issue_date,body.due_date||null,body.prices_include_tax,body.retention_basis||null,totals.subtotal,body.discount_amount,totals.taxTotal,totals.retentionTotal,totals.total,collectedTotal,dueTotal,body.show_bank_details,body.show_stamp,body.show_signature,body.notes||null,JSON.stringify(body.reference_data),JSON.stringify(customer.rows[0])])
     }
     for (const line of totals.lines) await client.query(`INSERT INTO document_items(document_id,description,unit,quantity,unit_price,discount,tax_rate,retention_rate,line_subtotal,line_tax,line_retention,line_total,sort_order) VALUES($1,$2,$3,$4,$5,$6,15,$7,$8,$9,$10,$11,$12)`, [id,line.description,line.unit||null,line.quantity,line.unit_price,line.discount,line.retention_percent,line.line_subtotal,line.line_tax,line.line_retention,line.line_total,line.sort_order])
+    for (const payment of body.payments) await client.query(`INSERT INTO document_payments(document_id,payment_method_id,payment_method_name,amount,is_collected,paid_at) VALUES($1,(SELECT id FROM payment_methods WHERE organization_id=$2 AND name=$3 AND is_active=TRUE LIMIT 1),$3,$4,TRUE,NOW())`, [id,organizationId,payment.payment_method_name,payment.amount])
     return { id }
   })
 }

@@ -17,6 +17,7 @@ import { Separator } from "@/shared/components/ui/separator"
 import { CustomerSelector } from "./CustomerSelector"
 import { ItemsTable } from "./ItemsTable"
 import { TotalsSection } from "./TotalsSection"
+import { PaymentCollection, type CollectedPayment } from "./PaymentCollection"
 import { DOCUMENT_TYPE_LABELS } from "../lib/calculations"
 import { generateId } from "@/shared/utils"
 import { toast } from "@/shared/hooks/useToast"
@@ -37,8 +38,8 @@ const itemSchema = z.object({
 
 const docSchema = z.object({
   type: z.enum(["tax_invoice", "simplified_invoice", "quotation", "proforma", "receipt_voucher"]),
-  date: z.string().min(1, "التاريخ مطلوب"),
-  due_date: z.string().optional(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "اكتب التاريخ بصيغة YYYY/MM/DD"),
+  due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "اكتب التاريخ بصيغة YYYY/MM/DD").optional().or(z.literal("")),
   reference_number: z.string().optional(),
   purchase_order: z.string().optional(),
   customer_name: z.string().min(1, "اسم العميل مطلوب"),
@@ -53,7 +54,6 @@ const docSchema = z.object({
   discount_amount: z.number().min(0).default(0),
   retention_amount: z.number().min(0).default(0),
   notes: z.string().optional(),
-  terms_and_conditions: z.string().optional(),
   payment_method: z.string().optional(),
 })
 
@@ -63,15 +63,19 @@ interface Props {
   initialType?: DocumentType
   draft?: Document
   initialAppearance?: { show_stamp: boolean; show_signature: boolean }
+  initialPayments?: CollectedPayment[]
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
-export function DocumentForm({ initialType = "tax_invoice", draft, initialAppearance }: Props) {
+export function DocumentForm({ initialType = "tax_invoice", draft, initialAppearance, initialPayments = [] }: Props) {
   const navigate = useNavigate()
   const [isSaving, setIsSaving] = useState(false)
   const [isIssuing, setIsIssuing] = useState(false)
   const [appearance, setAppearance] = useState(initialAppearance ?? { show_stamp: false, show_signature: false })
   const [availableAppearance, setAvailableAppearance] = useState({ stamp: false, signature: false })
+  const [notesEnabled, setNotesEnabled] = useState(Boolean(draft?.notes))
+  const [collectPayment,setCollectPayment]=useState(initialPayments.length>0)
+  const [payments,setPayments]=useState<CollectedPayment[]>(initialPayments.length?initialPayments:[{payment_method_name:"",amount:0}])
 
   const org = useLiveQuery(() => db.organizations.toArray().then((r) => r[0]))
 
@@ -131,8 +135,8 @@ export function DocumentForm({ initialType = "tax_invoice", draft, initialAppear
     const stamp=Boolean(organization.stamp_url&&organization.stamp_on_invoice)
     const signature=Boolean(organization.signature_url&&organization.signature_on_invoice)
     setAvailableAppearance({stamp,signature})
-    if(!draft)setAppearance({show_stamp:stamp,show_signature:signature})
-  })},[draft])
+    if(!draft){setAppearance({show_stamp:stamp,show_signature:signature});setValue("vat_inclusive",Boolean(organization.prices_include_tax))}
+  })},[draft,setValue])
 
   const toCentralDraft = (data: DocumentFormData): DocumentDraftInput => ({
     customer_id: data.customer_id,
@@ -141,17 +145,19 @@ export function DocumentForm({ initialType = "tax_invoice", draft, initialAppear
     prices_include_tax: data.vat_inclusive,
     retention_basis: data.items.some((item)=>item.retention_percent>0) ? "before_tax" : undefined,
     discount_amount: data.discount_amount,
-    notes: data.notes || undefined,
-    show_bank_details: Boolean(data.payment_method),
+    notes: notesEnabled ? data.notes || undefined : undefined,
+    show_bank_details: collectPayment && payments.some((payment)=>payment.payment_method_name==="تحويل بنكي"),
     show_stamp: appearance.show_stamp,
     show_signature: appearance.show_signature,
     reference_data: { purchase_order: data.purchase_order, reference_number: data.reference_number, payment_method: data.payment_method },
+    payments: collectPayment ? payments : [],
     items: data.items.map((item) => ({ description:item.description,unit:item.unit,quantity:item.quantity,unit_price:item.unit_price,discount_percent:item.discount_percent,retention_percent:item.retention_percent })),
   })
 
   const saveDraft = form.handleSubmit(async (data) => {
     setIsSaving(true)
     try {
+      if(collectPayment&&payments.some((payment)=>!payment.payment_method_name||payment.amount<=0))throw new Error("اختر طريقة السداد وأدخل مبلغًا صحيحًا لكل دفعة")
       if (draft) await updateDocumentDraft(draft.id, toCentralDraft(data))
       else await createDocumentDraft(toCentralDraft(data))
       await navigate({ to: "/documents" })
@@ -166,6 +172,7 @@ export function DocumentForm({ initialType = "tax_invoice", draft, initialAppear
   const issueDocument = form.handleSubmit(async (data) => {
     setIsIssuing(true)
     try {
+      if(collectPayment&&payments.some((payment)=>!payment.payment_method_name||payment.amount<=0))throw new Error("اختر طريقة السداد وأدخل مبلغًا صحيحًا لكل دفعة")
       const saved = draft ? await updateDocumentDraft(draft.id, toCentralDraft(data)) : await createDocumentDraft(toCentralDraft(data))
       await issueDocumentDraft(saved.document_id)
       await navigate({ to: "/documents/$id", params: { id: saved.document_id } })
@@ -261,11 +268,11 @@ export function DocumentForm({ initialType = "tax_invoice", draft, initialAppear
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <div className="space-y-1.5">
           <Label htmlFor="date">تاريخ المستند *</Label>
-          <Input id="date" type="date" dir="ltr" {...register("date")} />
+          <Input id="date" inputMode="numeric" placeholder="YYYY/MM/DD" dir="ltr" value={watch("date").replaceAll("-","/")} onChange={(event)=>{setValue("date",event.target.value.replaceAll("/","-"),{shouldValidate:true})}} />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="due_date">تاريخ الاستحقاق</Label>
-          <Input id="due_date" type="date" dir="ltr" {...register("due_date")} />
+          <Input id="due_date" inputMode="numeric" placeholder="YYYY/MM/DD" dir="ltr" value={(watch("due_date")??"").replaceAll("-","/")} onChange={(event)=>{setValue("due_date",event.target.value.replaceAll("/","-"),{shouldValidate:true})}} />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="reference_number">رقم المرجع</Label>
@@ -293,22 +300,10 @@ export function DocumentForm({ initialType = "tax_invoice", draft, initialAppear
       {/* ── Totals + Notes ── */}
       <div className="grid gap-6 md:grid-cols-2">
         <div className="space-y-4">
-          <div className="space-y-1.5">
-            <Label>ملاحظات</Label>
-            <Textarea placeholder="ملاحظات تظهر في المستند..." rows={4} {...register("notes")} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>الشروط والأحكام</Label>
-            <Textarea placeholder="شروط الدفع والتسليم..." rows={3} {...register("terms_and_conditions")} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>طريقة السداد</Label>
-            <Select value={watch("payment_method")||"none"} onValueChange={(value)=>{setValue("payment_method",value==="none"?"":value)}}><SelectTrigger><SelectValue placeholder="اختر طريقة السداد"/></SelectTrigger><SelectContent><SelectItem value="none">غير محددة</SelectItem>{paymentMethods.map((method)=><SelectItem key={method} value={method}>{method}</SelectItem>)}</SelectContent></Select>
-            <p className="text-xs text-muted-foreground">معلومة تظهر في الفاتورة ولا تنشئ قيدًا محاسبيًا.</p>
-          </div>
+          <div className="space-y-2"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={notesEnabled} onChange={(event)=>{setNotesEnabled(event.target.checked);if(!event.target.checked)setValue("notes","")}}/>إضافة ملاحظات</label>{notesEnabled&&<Textarea placeholder="ملاحظات تظهر في المستند..." rows={4} {...register("notes")} />}</div>
           {(availableAppearance.stamp||availableAppearance.signature)&&<div className="space-y-2 rounded-lg border p-3"><Label>مظهر هذه الفاتورة</Label>{availableAppearance.stamp&&<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={appearance.show_stamp} onChange={(event)=>{setAppearance((current)=>({...current,show_stamp:event.target.checked}))}}/>إظهار ختم المنشأة</label>}{availableAppearance.signature&&<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={appearance.show_signature} onChange={(event)=>{setAppearance((current)=>({...current,show_signature:event.target.checked}))}}/>إظهار توقيع المنشأة</label>}<p className="text-xs text-muted-foreground">يمكن إخفاؤهما لهذه الفاتورة فقط دون تغيير الإعدادات العامة.</p></div>}
         </div>
-        <TotalsSection form={form} />
+        <TotalsSection form={form}><PaymentCollection form={form} methods={paymentMethods} enabled={collectPayment} onEnabled={setCollectPayment} payments={payments} onPayments={setPayments}/></TotalsSection>
       </div>
     </div>
   )
