@@ -1,5 +1,5 @@
 ﻿import { Link, useRouterState } from "@tanstack/react-router"
-import { LayoutDashboard, Users, FileText, Settings, LogOut, ChevronRight, ChevronLeft } from "lucide-react"
+import { LayoutDashboard, Users, FileText, Settings, LogOut, ChevronRight, ChevronLeft, ShoppingCart, Landmark } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/shared/utils"
 import { Button } from "@/shared/components/ui/button"
@@ -8,6 +8,8 @@ import { useAuth } from "@/features/auth/hooks/useAuth"
 const navItems = [
   { to: "/" as const, label: "لوحة التحكم", icon: LayoutDashboard },
   { to: "/documents" as const, label: "المستندات", icon: FileText },
+  { to: "/purchases" as const, label: "المشتريات الضريبية", icon: ShoppingCart },
+  { to: "/tax-return" as const, label: "الإقرار الضريبي", icon: Landmark },
   { to: "/customers" as const, label: "العملاء", icon: Users },
   { to: "/settings" as const, label: "الإعدادات", icon: Settings },
 ]

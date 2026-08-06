@@ -278,9 +278,9 @@ CREATE UNIQUE INDEX customer_receipts_request_uidx ON customer_receipts (organiz
 CREATE TABLE financial_audit_events (
   id BIGSERIAL PRIMARY KEY,
   organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  entity_type TEXT NOT NULL CHECK (entity_type IN ('document','receipt')),
+  entity_type TEXT NOT NULL CHECK (entity_type IN ('document','receipt','purchase_invoice','tax_return')),
   entity_id TEXT NOT NULL,
-  action TEXT NOT NULL CHECK (action IN ('issued','cancelled','reversed')),
+  action TEXT NOT NULL CHECK (action IN ('issued','cancelled','reversed','created','included','excluded','closed')),
   reason TEXT, snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -308,13 +308,27 @@ CREATE TABLE purchase_invoices (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   supplier_id TEXT REFERENCES suppliers(id) ON DELETE SET NULL,
-  invoice_number TEXT, invoice_date DATE, subtotal NUMERIC(18,4) NOT NULL DEFAULT 0,
+  internal_number TEXT, supplier_name TEXT, supplier_vat_number TEXT,
+  invoice_number TEXT, invoice_date DATE, invoice_timestamp TIMESTAMPTZ,
+  subtotal NUMERIC(18,4) NOT NULL DEFAULT 0,
   tax_total NUMERIC(18,4) NOT NULL DEFAULT 0, total NUMERIC(18,4) NOT NULL DEFAULT 0,
-  include_in_tax_return BOOLEAN NOT NULL DEFAULT FALSE,
+  include_in_tax_return BOOLEAN NOT NULL DEFAULT TRUE,
   qr_payload TEXT, qr_extraction_status TEXT CHECK (qr_extraction_status IN ('extracted','failed','manual')),
-  source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('qr','manual')),
+  qr_fields JSONB NOT NULL DEFAULT '{}'::jsonb,
+  source TEXT NOT NULL DEFAULT 'qr' CHECK (source IN ('qr','manual')),
+  status TEXT NOT NULL DEFAULT 'included' CHECK (status IN ('included','excluded','cancelled')),
+  exclusion_reason TEXT, cancelled_at TIMESTAMPTZ, cancellation_reason TEXT,
+  duplicate_override BOOLEAN NOT NULL DEFAULT FALSE,
+  duplicate_of_id TEXT REFERENCES purchase_invoices(id) ON DELETE RESTRICT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), deleted_at TIMESTAMPTZ
 );
+
+CREATE TABLE purchase_invoice_sequences (
+  organization_id TEXT PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+  next_number BIGINT NOT NULL DEFAULT 1 CHECK (next_number > 0)
+);
+
+CREATE UNIQUE INDEX purchase_invoices_internal_number_uidx ON purchase_invoices (organization_id, internal_number) WHERE internal_number IS NOT NULL;
 
 CREATE TABLE purchase_invoice_items (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

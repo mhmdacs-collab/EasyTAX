@@ -119,3 +119,30 @@ export type CentralDocument = {
 }
 export const listDocuments = () => request<{ documents: CentralDocument[] }>("/documents")
 export const fetchDocument = (id:string) => request<{ document: CentralDocument }>(`/documents/${id}`)
+
+export type TaxPurchase = {
+  id:string; internal_number:string; supplier_name:string; supplier_vat_number:string; invoice_number:string
+  invoice_date:string; invoice_timestamp:string; subtotal:number|string; tax_total:number|string; total:number|string
+  status:"included"|"excluded"|"cancelled"; exclusion_reason?:string; cancellation_reason?:string
+  duplicate_override:boolean; duplicate_of_id?:string; created_at:string
+}
+export type TaxPurchaseInput = {
+  supplier_name:string; supplier_vat_number:string; invoice_number:string; invoice_timestamp:string
+  total:number; tax_total:number; qr_payload:string; qr_fields:Record<string,string>
+  duplicate_override:boolean; responsibility_confirmed:true; notes?:string
+}
+export const listTaxPurchases = () => request<{purchases:TaxPurchase[]}>("/purchases")
+export const fetchTaxPurchase = (id:string) => request<{purchase:TaxPurchase}>(`/purchases/${id}`)
+export const createTaxPurchase = (input:TaxPurchaseInput) => request<{purchase:TaxPurchase}>("/purchases",{method:"POST",body:JSON.stringify(input)})
+export const setTaxPurchaseStatus = (id:string,status:TaxPurchase["status"],reason?:string) => request<{purchase:TaxPurchase}>(`/purchases/${id}/status`,{method:"PATCH",body:JSON.stringify({status,reason})})
+
+export type TaxReturnSummary = {
+  period:{year:number;quarter:number;starts_on:string;ends_on:string;deadline:string;status:"open"|"awaiting_review";days_remaining:number}
+  organization:{id:string;business_name:string;vat_number:string}
+  sales:{total:number;taxable:number;tax:number;adjustments:number}
+  purchases:{total:number;taxable:number;tax:number;adjustments:number}
+  net_tax:number
+  counts:{sales:number;purchases:number;sales_returns:number;purchase_returns:number}
+  notice:string
+}
+export const fetchTaxReturnSummary = (year?:number,quarter?:number) => request<TaxReturnSummary>(`/tax-returns/current${year&&quarter?`?year=${year}&quarter=${quarter}`:""}`)
