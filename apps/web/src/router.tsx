@@ -147,6 +147,8 @@ const CustomersPage = lazy(() => import("@/features/customers/pages/CustomersPag
 const DocumentsPage = lazy(() => import("@/features/documents/pages/DocumentsPage").then((m) => ({ default: m.DocumentsPage })))
 const NewDocumentPage = lazy(() => import("@/features/documents/pages/NewDocumentPage").then((m) => ({ default: m.NewDocumentPage })))
 const DocumentViewPage = lazy(() => import("@/features/documents/pages/DocumentViewPage").then((m) => ({ default: m.DocumentViewPage })))
+const NewReceiptPage = lazy(() => import("@/features/receipts/pages/NewReceiptPage").then((m) => ({ default: m.NewReceiptPage })))
+const ReceiptViewPage = lazy(() => import("@/features/receipts/pages/ReceiptViewPage").then((m) => ({ default: m.ReceiptViewPage })))
 const SettingsPage = lazy(() => import("@/features/settings/pages/SettingsPage"))
 
 const dashboardRoute = createRoute({ getParentRoute: () => appRoute, path: "/", component: DashboardPage })
@@ -154,6 +156,8 @@ const customersRoute = createRoute({ getParentRoute: () => appRoute, path: "/cus
 const documentsRoute = createRoute({ getParentRoute: () => appRoute, path: "/documents", component: DocumentsPage })
 const newDocumentRoute = createRoute({ getParentRoute: () => appRoute, path: "/documents/new", component: NewDocumentPage })
 const documentViewRoute = createRoute({ getParentRoute: () => appRoute, path: "/documents/$id", component: DocumentViewPage })
+const newReceiptRoute = createRoute({ getParentRoute: () => appRoute, path: "/receipts/new", component: NewReceiptPage })
+const receiptViewRoute = createRoute({ getParentRoute: () => appRoute, path: "/receipts/$id", component: ReceiptViewPage })
 const documentEditRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/documents/$id/edit",
@@ -172,6 +176,8 @@ const routeTree = rootRoute.addChildren([
     customersRoute,
     newDocumentRoute,
     documentViewRoute,
+    newReceiptRoute,
+    receiptViewRoute,
     documentEditRoute,
     documentsRoute,
     settingsRoute,

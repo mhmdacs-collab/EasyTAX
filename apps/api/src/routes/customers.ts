@@ -94,14 +94,15 @@ customersRouter.post("/:id/receipts", zValidator("json", receiptSchema), async (
   const orgId = await organizationId(c.req.raw.headers); if (!orgId) return c.json({ error: "غير مصرح" }, 401)
   const customerId=c.req.param("id"),body=c.req.valid("json")
   const result=await withTransaction(async(client)=>{
-    const customer=await client.query("SELECT id FROM customers WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL",[customerId,orgId])
+    const customer=await client.query("SELECT * FROM customers WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL",[customerId,orgId])
     if(!customer.rows[0])return null
+    const organization=await client.query("SELECT * FROM organizations WHERE id=$1 AND deleted_at IS NULL",[orgId])
     await client.query("INSERT INTO document_sequences(organization_id,document_type,next_number) VALUES($1,'receipt',1) ON CONFLICT(organization_id,document_type) DO NOTHING",[orgId])
     const sequence=await client.query("SELECT next_number FROM document_sequences WHERE organization_id=$1 AND document_type='receipt' FOR UPDATE",[orgId])
     const candidate=Number(sequence.rows[0].next_number),number=String(candidate).padStart(5,"0")
     await client.query("UPDATE document_sequences SET next_number=$1 WHERE organization_id=$2 AND document_type='receipt'",[candidate+1,orgId])
-    const receipt=await client.query(`INSERT INTO customer_receipts(id,organization_id,customer_id,number,receipt_date,amount,payment_method_name,reference_number,notes)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,[randomUUID(),orgId,customerId,number,body.receipt_date,body.amount,body.payment_method_name,body.reference_number||null,body.notes||null])
+    const receipt=await client.query(`INSERT INTO customer_receipts(id,organization_id,customer_id,number,receipt_date,amount,payment_method_name,payer_name,payer_phone,payer_email,payer_vat_number,reference_number,notes,organization_snapshot)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,[randomUUID(),orgId,customerId,number,body.receipt_date,body.amount,body.payment_method_name,customer.rows[0].name,customer.rows[0].phone||null,customer.rows[0].email||null,customer.rows[0].vat_number||null,body.reference_number||null,body.notes||null,JSON.stringify(organization.rows[0]??{})])
     return receipt.rows[0]
   })
   return result?c.json({receipt:result},201):c.json({error:"العميل غير موجود"},404)

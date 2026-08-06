@@ -257,10 +257,13 @@ CREATE TABLE document_terms (
 CREATE TABLE customer_receipts (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  customer_id TEXT REFERENCES customers(id) ON DELETE RESTRICT,
   number TEXT NOT NULL, receipt_date DATE NOT NULL,
   amount NUMERIC(18,4) NOT NULL CHECK (amount > 0), payment_method_name TEXT NOT NULL,
-  reference_number TEXT, notes TEXT,
+  payer_name TEXT NOT NULL, payer_phone TEXT, payer_email TEXT, payer_vat_number TEXT,
+  reference_number TEXT, notes TEXT, organization_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  show_stamp BOOLEAN NOT NULL DEFAULT FALSE, show_signature BOOLEAN NOT NULL DEFAULT FALSE,
+  issued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (organization_id, number)
 );

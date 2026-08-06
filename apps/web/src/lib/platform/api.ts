@@ -54,6 +54,21 @@ export type CustomerAccount = {
 export const fetchCustomerAccount = (id:string) => request<CustomerAccount>(`/customers/${id}/account`)
 export const createCustomerReceipt = (id:string,input:{amount:number;payment_method_name:string;receipt_date:string;reference_number?:string;notes?:string}) => request<{receipt:{id:string;number:string}}>(`/customers/${id}/receipts`,{method:"POST",body:JSON.stringify(input)})
 
+export type CentralReceipt = {
+  id:string; customer_id?:string; number:string; receipt_date:string; amount:number|string
+  payment_method_name:string; payer_name:string; payer_phone?:string; payer_email?:string; payer_vat_number?:string
+  reference_number?:string; notes?:string; organization_snapshot:Record<string,unknown>
+  show_stamp:boolean; show_signature:boolean; issued_at:string; created_at:string
+}
+export type ReceiptInput = {
+  customer_id?:string; payer_name?:string; payer_phone?:string; payer_email?:string; payer_vat_number?:string
+  amount:number; payment_method_name:string; receipt_date:string; reference_number?:string; notes?:string
+  show_stamp:boolean; show_signature:boolean
+}
+export const listReceipts = () => request<{receipts:CentralReceipt[]}>("/receipts")
+export const fetchReceipt = (id:string) => request<{receipt:CentralReceipt}>(`/receipts/${id}`)
+export const createReceipt = (input:ReceiptInput) => request<{receipt:CentralReceipt}>("/receipts",{method:"POST",body:JSON.stringify(input)})
+
 export type SettingsPayload = {
   organization: Record<string, string | number | boolean | null>
   payment_methods: Array<{ id: string; name: string; is_collected: boolean; is_default: boolean; is_active: boolean }>
