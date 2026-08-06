@@ -107,7 +107,7 @@ export function DocumentForm({ initialType = "tax_invoice", draft, initialAppear
           type: draft.type,
           date: draft.date,
           due_date: draft.due_date ?? "",
-          reference_number: "",
+          reference_number: draft.reference_number ?? "",
           purchase_order: draft.purchase_order ?? "",
           customer_name: draft.customer_name,
           customer_id: draft.customer_id ?? "",
