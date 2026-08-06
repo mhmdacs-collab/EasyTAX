@@ -107,6 +107,7 @@ purchasesRouter.patch("/:id/status", zValidator("json", statusSchema), async (c)
   const result = await withTransaction(async (client) => {
     const current = await client.query("SELECT * FROM purchase_invoices WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL FOR UPDATE", [c.req.param("id"), orgId])
     if (!current.rows[0]) return null
+    if (current.rows[0].status === "cancelled") return { error: "CANCELLED_LOCKED" as const }
     const updated = await client.query(`UPDATE purchase_invoices SET status=$1,include_in_tax_return=$2,
       exclusion_reason=$3,cancelled_at=CASE WHEN $1='cancelled' THEN NOW() ELSE NULL END,
       cancellation_reason=CASE WHEN $1='cancelled' THEN $3 ELSE NULL END,updated_at=NOW()
@@ -114,5 +115,7 @@ purchasesRouter.patch("/:id/status", zValidator("json", statusSchema), async (c)
     await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,reason,snapshot) VALUES($1,'purchase_invoice',$2,$3,$4,$5)", [orgId, c.req.param("id"), body.status === "cancelled" ? "cancelled" : body.status, body.reason ?? null, JSON.stringify(updated.rows[0])])
     return updated.rows[0]
   })
-  return result ? c.json({ purchase: result }) : c.json({ error: "فاتورة المشتريات غير موجودة" }, 404)
+  if (!result) return c.json({ error: "فاتورة المشتريات غير موجودة" }, 404)
+  if ("error" in result) return c.json({ error: "الفاتورة الملغاة مغلقة ولا يمكن إعادتها إلى الإقرار" }, 409)
+  return c.json({ purchase: result })
 })

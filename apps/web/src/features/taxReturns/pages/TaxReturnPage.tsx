@@ -5,6 +5,7 @@ import { Button } from "@/shared/components/ui/button"
 import { Badge } from "@/shared/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card"
 import { formatCurrency, formatDate } from "@/shared/utils"
+import { dateWithinPeriod } from "../lib/period"
 
 const quarterNames = ["الأول", "الثاني", "الثالث", "الرابع"]
 
@@ -15,11 +16,13 @@ export function TaxReturnPage() {
   useEffect(()=>{void load()},[load])
 
   async function downloadSales() {
-    const documents=(await listDocuments()).documents.filter((item)=>item.type==="invoice"&&["issued","paid","partially_paid"].includes(item.status))
+    if(!summary)return
+    const documents=(await listDocuments()).documents.filter((item)=>item.type==="invoice"&&["issued","paid","partially_paid"].includes(item.status)&&dateWithinPeriod(item.issue_date,summary.period.starts_on,summary.period.ends_on))
     downloadCsv("كشف-المبيعات.csv",["رقم الفاتورة","التاريخ","العميل","الرقم الضريبي","قبل الضريبة","الضريبة","الإجمالي"],documents.map((item)=>[item.number,item.issue_date,item.customer_snapshot.name,item.customer_snapshot.vat_number,Number(item.total)-Number(item.tax_total),item.tax_total,item.total]))
   }
   async function downloadPurchases() {
-    const purchases=(await listTaxPurchases()).purchases.filter((item)=>item.status==="included")
+    if(!summary)return
+    const purchases=(await listTaxPurchases()).purchases.filter((item)=>item.status==="included"&&dateWithinPeriod(item.invoice_date,summary.period.starts_on,summary.period.ends_on))
     downloadCsv("كشف-المشتريات.csv",["رقم EasyTAX","فاتورة المورد","التاريخ","المورد","الرقم الضريبي","قبل الضريبة","الضريبة","الإجمالي"],purchases.map((item)=>[item.internal_number,item.invoice_number,item.invoice_date,item.supplier_name,item.supplier_vat_number,item.subtotal,item.tax_total,item.total]))
   }
   if(error)return <div className="m-6 rounded-lg border border-destructive/40 bg-destructive/5 p-5 text-destructive">{error}</div>
@@ -28,7 +31,7 @@ export function TaxReturnPage() {
   return <div className="space-y-6 p-4 sm:p-6 print:p-0">
     <div className="flex flex-wrap items-start justify-between gap-3 print:hidden"><div><h1 className="text-2xl font-bold">الإقرار الضريبي</h1><p className="mt-1 text-sm text-muted-foreground">تقرير مساعد مبني على المبيعات وفواتير المشتريات المشمولة.</p></div><Badge variant="warning">{summary.period.status==="open"?"جاري":"بانتظار المراجعة"}</Badge></div>
     <Card className="print:border-0 print:shadow-none"><CardHeader className="border-b"><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle>الإقرار الضريبي للقيمة المضافة</CardTitle><p className="mt-2 text-sm text-muted-foreground">الربع {quarterNames[summary.period.quarter-1]} {summary.period.year}</p></div><div className="text-sm"><p className="font-medium">{summary.organization.business_name}</p><p className="mt-1 font-mono text-muted-foreground" dir="ltr">{summary.organization.vat_number}</p></div></div></CardHeader><CardContent className="space-y-6 pt-6">
-      <div className="grid gap-4 sm:grid-cols-3"><Metric title="صافي المبيعات" value={summary.sales.total}/><Metric title="صافي المشتريات" value={summary.purchases.total}/><Metric title={netLabel} value={Math.abs(summary.net_tax)} emphasized negative={summary.net_tax<0}/></div>
+      <div className="grid gap-4 sm:grid-cols-3"><Metric title="إجمالي المبيعات شامل الضريبة" value={summary.sales.total} detail={`قبل الضريبة: ${formatCurrency(summary.sales.taxable)}`}/><Metric title="إجمالي المشتريات شامل الضريبة" value={summary.purchases.total} detail={`قبل الضريبة: ${formatCurrency(summary.purchases.taxable)}`}/><Metric title={netLabel} value={Math.abs(summary.net_tax)} emphasized negative={summary.net_tax<0}/></div>
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950 print:hidden">⏳ {summary.period.days_remaining} يومًا متبقيًا للموعد النهائي ({formatDate(summary.period.deadline)})</div>
       <ReturnSection title="ضريبة القيمة المضافة على المبيعات" rows={[
         ["المبيعات الخاضعة للضريبة الأساسية (15%)",summary.sales.taxable,summary.sales.adjustments,summary.sales.tax],
@@ -46,7 +49,7 @@ export function TaxReturnPage() {
   </div>
 }
 
-function Metric({title,value,emphasized=false,negative=false}:{title:string;value:number;emphasized?:boolean;negative?:boolean}) { return <div className={`rounded-lg border p-4 ${emphasized?negative?"border-emerald-300 bg-emerald-50":"border-primary/30 bg-primary/5":""}`}><p className="text-sm text-muted-foreground">{title}</p><p className="mt-2 text-xl font-bold tabular-nums">{formatCurrency(value)}</p></div> }
+function Metric({title,value,detail,emphasized=false,negative=false}:{title:string;value:number;detail?:string;emphasized?:boolean;negative?:boolean}) { return <div className={`rounded-lg border p-4 ${emphasized?negative?"border-emerald-300 bg-emerald-50":"border-primary/30 bg-primary/5":""}`}><p className="text-sm text-muted-foreground">{title}</p><p className="mt-2 text-xl font-bold tabular-nums">{formatCurrency(value)}</p>{detail?<p className="mt-1 text-xs text-muted-foreground">{detail}</p>:null}</div> }
 function ReturnSection({title,rows,total}:{title:string;rows:Array<[string,number,number,number]>;total:[number,number,number]}) { return <section><h3 className="rounded-t-lg bg-cyan-600 px-4 py-2 font-semibold text-white">{title}</h3><div className="overflow-x-auto border border-t-0"><table className="w-full min-w-[650px] text-sm"><thead><tr className="bg-muted/50"><th className="p-2 text-start">البيان</th><th className="p-2 text-end">المبلغ</th><th className="p-2 text-end">مبلغ التعديل</th><th className="p-2 text-end">مبلغ الضريبة</th></tr></thead><tbody>{rows.map(([label,amount,adjustment,tax])=><tr key={label} className="border-t"><td className="p-2">{label}</td><td className="p-2 text-end tabular-nums">{amount.toFixed(2)}</td><td className="p-2 text-end tabular-nums">{adjustment.toFixed(2)}</td><td className="p-2 text-end tabular-nums">{tax.toFixed(2)}</td></tr>)}<tr className="border-t bg-cyan-50 font-bold"><td className="p-2">الإجمالي</td>{total.map((value,index)=><td key={index} className="p-2 text-end tabular-nums">{value.toFixed(2)}</td>)}</tr></tbody></table></div></section> }
 function SummaryRow({label,value,final=false}:{label:string;value:number;final?:boolean}) { return <div className={`flex items-center justify-between gap-4 border-b px-4 py-2 last:border-0 ${final?"bg-cyan-600 font-bold text-white":""}`}><span>{label}</span><span className="tabular-nums">{value.toFixed(2)}</span></div> }
 function Count({label,value}:{label:string;value:number}) { return <div className="rounded-lg border p-3 text-center"><p className="text-xl font-bold">{value}</p><p className="text-xs text-muted-foreground">{label}</p></div> }
