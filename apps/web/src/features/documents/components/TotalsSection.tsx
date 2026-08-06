@@ -1,5 +1,6 @@
 ﻿import { type ReactNode } from "react"
 import { type UseFormReturn, useWatch } from "react-hook-form"
+import { useState } from "react"
 import { Input } from "@/shared/components/ui/input"
 import { Separator } from "@/shared/components/ui/separator"
 import { calcDocumentTotals, calcItemSubtotal } from "../lib/calculations"
@@ -25,6 +26,10 @@ function TotalRow({ label, value, bold }: { label: string; value: number; bold?:
 export function TotalsSection({ form, children, isQuotation = false, hideTotals = false }: Props) {
   const { register, control, setValue } = form
   const [watchedItems, vatRate, vatInclusive, discountAmount] = useWatch({ control, name: ["items", "vat_rate", "vat_inclusive", "discount_amount"] })
+  const [discountEnabled, setDiscountEnabled] = useState(() => (discountAmount || 0) > 0)
+  const grossItemsTotal = watchedItems.reduce((sum, item) => sum + (item.unit_price || 0) * (item.quantity || 0), 0)
+  const discountedItemsTotal = watchedItems.reduce((sum,item)=>sum+calcItemSubtotal(item.unit_price||0,item.quantity||0,item.discount_percent||0),0)
+  const lineDiscountTotal = Math.max(0, grossItemsTotal - discountedItemsTotal)
   const retentionAmount = watchedItems.reduce((sum,item)=>sum+calcItemSubtotal(item.unit_price||0,item.quantity||0,item.discount_percent||0)*(item.retention_percent||0)/100,0)
 
   const totals = (() => {
@@ -42,21 +47,17 @@ export function TotalsSection({ form, children, isQuotation = false, hideTotals 
     <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{hideTotals?"إعداد الضريبة":"المجاميع"}</p>
 
-      {!hideTotals&&<TotalRow label="المجموع الفرعي" value={totals.subtotal} />}
+      {!hideTotals&&<TotalRow label="إجمالي البنود قبل الخصم" value={grossItemsTotal} />}
+      {!hideTotals&&lineDiscountTotal > 0 ? <TotalRow label="خصومات البنود" value={lineDiscountTotal} /> : null}
 
       {/* Optional discount */}
-      {!hideTotals&&!isQuotation&&<div className="flex items-center gap-3">
-        <span className="shrink-0 text-sm text-muted-foreground">خصم إضافي على الفاتورة (ر.س)</span>
-        <Input
-          type="number"
-          min="0"
-          step="0.01"
-          placeholder="0.00"
-          dir="ltr"
-          className="h-8 text-sm"
-          {...register("discount_amount", { valueAsNumber: true })}
-        />
-      </div>}
+      {!hideTotals&&!isQuotation?<div className="space-y-2">
+        <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+          <input type="checkbox" checked={discountEnabled} onChange={(event)=>{const enabled=event.target.checked;setDiscountEnabled(enabled);if(!enabled)setValue("discount_amount",0,{shouldDirty:true,shouldValidate:true})}} />
+          خصم على الفاتورة (ر.س)
+        </label>
+        {discountEnabled?<Input type="number" min="0" step="0.01" placeholder="قيمة الخصم" aria-label="قيمة خصم الفاتورة" dir="ltr" className="h-9 text-sm" {...register("discount_amount", { valueAsNumber: true })} />:null}
+      </div>:null}
 
       {!hideTotals&&<Separator />}
 
@@ -73,7 +74,7 @@ export function TotalsSection({ form, children, isQuotation = false, hideTotals 
 
       {!hideTotals&&(totals.discount_amount > 0 || totals.retention_amount > 0) && (
         <>
-          {totals.discount_amount > 0 && <TotalRow label="خصم إضافي على الفاتورة" value={-totals.discount_amount} />}
+          {totals.discount_amount > 0 && <TotalRow label="خصم على الفاتورة" value={totals.discount_amount} />}
           <TotalRow label="الوعاء الضريبي" value={totals.taxable_amount} />
           <Separator />
         </>
@@ -83,7 +84,7 @@ export function TotalsSection({ form, children, isQuotation = false, hideTotals 
 
       {!hideTotals&&<Separator />}
       {!hideTotals&&<TotalRow label="الإجمالي الكلي" value={totals.total} bold />}
-      {!hideTotals&&totals.retention_amount > 0 && <><TotalRow label="حجز ضمان الأعمال" value={-totals.retention_amount} /><TotalRow label="صافي المطلوب" value={totals.payable_amount} bold /></>}
+      {!hideTotals&&totals.retention_amount > 0 && <><TotalRow label="حجز ضمان الأعمال" value={totals.retention_amount} /><TotalRow label="المبلغ المستحق" value={totals.payable_amount} bold /></>}
       {children ? <><Separator />{children}</> : null}
     </div>
   )
