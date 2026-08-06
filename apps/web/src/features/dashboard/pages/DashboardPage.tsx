@@ -48,7 +48,8 @@ export default function DashboardPage() {
     if (!documents) return null
     const now = new Date()
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
-    const issued = documents.filter((document) => document.type === "invoice" && document.status === "issued")
+    const issuedStatuses: CentralDocument["status"][] = ["issued", "paid", "partially_paid"]
+    const issued = documents.filter((document) => document.type === "invoice" && issuedStatuses.includes(document.status))
     const thisMonth = issued.filter((document) => new Date(document.issue_date).getTime() >= monthStart)
     return {
       totalRevenue: issued.reduce((sum, document) => sum + Number(document.total), 0),
@@ -77,7 +78,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="إجمالي الفواتير الصادرة" icon={<TrendingUp className="size-4 text-green-500" />} loading={loading} value={formatCurrency(stats?.totalRevenue ?? 0)} detail={`${formatCurrency(stats?.monthRevenue ?? 0)} هذا الشهر`} />
+        <StatCard title="إجمالي الفواتير الصادرة منذ البداية" icon={<TrendingUp className="size-4 text-green-500" />} loading={loading} value={formatCurrency(stats?.totalRevenue ?? 0)} detail={`${formatCurrency(stats?.monthRevenue ?? 0)} فواتير هذا الشهر`} />
         <StatCard title="الفواتير الصادرة" icon={<FileText className="size-4 text-primary" />} loading={loading} value={String(stats?.issuedCount ?? 0)} detail={`${stats?.draftCount ?? 0} مسودة`} />
         <StatCard title="العملاء" icon={<Users className="size-4 text-blue-500" />} loading={loading} value={String(customerCount ?? 0)} detail="عميل مسجل" />
         <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">الاشتراك</CardTitle><Clock className="size-4 text-muted-foreground" /></CardHeader><CardContent>{!subscription ? <><Skeleton className="h-7 w-20" /><Skeleton className="mt-2 h-3 w-28" /></> : <><Badge variant={subscription.effective_status === "active" ? "success" : "destructive"} className="text-sm">{subscriptionLabel(subscription.effective_status)}</Badge><p className="mt-2 text-xs text-muted-foreground">{subscription.expires_at ? `ينتهي ${formatDate(subscription.expires_at)}` : "لا يوجد تاريخ انتهاء"}</p></>}</CardContent></Card>
