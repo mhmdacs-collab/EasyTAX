@@ -132,10 +132,10 @@ export function DocumentForm({ initialType = "tax_invoice", draft, initialAppear
   useEffect(()=>{void fetchSettings().then((settings)=>{
     setPaymentMethods(settings.payment_methods.filter((method)=>method.is_active).map((method)=>method.name))
     const organization=settings.organization
-    const stamp=Boolean(organization.stamp_url&&organization.stamp_on_invoice)
-    const signature=Boolean(organization.signature_url&&organization.signature_on_invoice)
-    setAvailableAppearance({stamp,signature})
-    if(!draft){setAppearance({show_stamp:stamp,show_signature:signature});setValue("vat_inclusive",Boolean(organization.prices_include_tax))}
+    const hasStamp=Boolean(organization.stamp_url)
+    const hasSignature=Boolean(organization.signature_url)
+    setAvailableAppearance({stamp:hasStamp,signature:hasSignature})
+    if(!draft){setAppearance({show_stamp:hasStamp&&Boolean(organization.stamp_on_invoice),show_signature:hasSignature&&Boolean(organization.signature_on_invoice)});setValue("vat_inclusive",Boolean(organization.prices_include_tax))}
   })},[draft,setValue])
 
   const toCentralDraft = (data: DocumentFormData): DocumentDraftInput => ({
@@ -146,7 +146,7 @@ export function DocumentForm({ initialType = "tax_invoice", draft, initialAppear
     retention_basis: data.items.some((item)=>item.retention_percent>0) ? "before_tax" : undefined,
     discount_amount: data.discount_amount,
     notes: notesEnabled ? data.notes || undefined : undefined,
-    show_bank_details: collectPayment && payments.some((payment)=>payment.payment_method_name==="تحويل بنكي"),
+    show_bank_details: data.payment_method==="تحويل بنكي" || (collectPayment && payments.some((payment)=>payment.payment_method_name==="تحويل بنكي")),
     show_stamp: appearance.show_stamp,
     show_signature: appearance.show_signature,
     reference_data: { purchase_order: data.purchase_order, reference_number: data.reference_number, payment_method: data.payment_method },
@@ -182,6 +182,15 @@ export function DocumentForm({ initialType = "tax_invoice", draft, initialAppear
       setIsIssuing(false)
     }
   })
+
+  const changePaymentCollection = (enabled: boolean) => {
+    setCollectPayment(enabled)
+    const method = watch("payment_method")
+    const firstPayment = payments[0]
+    if (enabled && method && firstPayment && !firstPayment.payment_method_name) {
+      setPayments([{ ...firstPayment, payment_method_name: method }])
+    }
+  }
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-6">
@@ -268,11 +277,12 @@ export function DocumentForm({ initialType = "tax_invoice", draft, initialAppear
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <div className="space-y-1.5">
           <Label htmlFor="date">تاريخ المستند *</Label>
-          <Input id="date" inputMode="numeric" placeholder="YYYY/MM/DD" dir="ltr" value={watch("date").replaceAll("-","/")} onChange={(event)=>{setValue("date",event.target.value.replaceAll("/","-"),{shouldValidate:true})}} />
+          <Input id="date" type="date" dir="ltr" {...register("date")} />
+          <p className="text-xs text-muted-foreground">يظهر في المستند بصيغة YYYY/MM/DD</p>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="due_date">تاريخ الاستحقاق</Label>
-          <Input id="due_date" inputMode="numeric" placeholder="YYYY/MM/DD" dir="ltr" value={(watch("due_date")??"").replaceAll("-","/")} onChange={(event)=>{setValue("due_date",event.target.value.replaceAll("/","-"),{shouldValidate:true})}} />
+          <Input id="due_date" type="date" dir="ltr" {...register("due_date")} />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="reference_number">رقم المرجع</Label>
@@ -301,9 +311,10 @@ export function DocumentForm({ initialType = "tax_invoice", draft, initialAppear
       <div className="grid gap-6 md:grid-cols-2">
         <div className="space-y-4">
           <div className="space-y-2"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={notesEnabled} onChange={(event)=>{setNotesEnabled(event.target.checked);if(!event.target.checked)setValue("notes","")}}/>إضافة ملاحظات</label>{notesEnabled&&<Textarea placeholder="ملاحظات تظهر في المستند..." rows={4} {...register("notes")} />}</div>
+          <div className="space-y-1.5"><Label>طريقة السداد</Label><Select value={watch("payment_method")||"none"} onValueChange={(value)=>{setValue("payment_method",value==="none"?"":value)}}><SelectTrigger><SelectValue placeholder="اختر طريقة السداد"/></SelectTrigger><SelectContent><SelectItem value="none">غير محددة</SelectItem>{paymentMethods.map((method)=><SelectItem key={method} value={method}>{method}</SelectItem>)}</SelectContent></Select><p className="text-xs text-muted-foreground">طريقة السداد المتفق عليها مع العميل، سواء تم استلام دفعة الآن أم لا.</p></div>
           {(availableAppearance.stamp||availableAppearance.signature)&&<div className="space-y-2 rounded-lg border p-3"><Label>مظهر هذه الفاتورة</Label>{availableAppearance.stamp&&<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={appearance.show_stamp} onChange={(event)=>{setAppearance((current)=>({...current,show_stamp:event.target.checked}))}}/>إظهار ختم المنشأة</label>}{availableAppearance.signature&&<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={appearance.show_signature} onChange={(event)=>{setAppearance((current)=>({...current,show_signature:event.target.checked}))}}/>إظهار توقيع المنشأة</label>}<p className="text-xs text-muted-foreground">يمكن إخفاؤهما لهذه الفاتورة فقط دون تغيير الإعدادات العامة.</p></div>}
         </div>
-        <TotalsSection form={form}><PaymentCollection form={form} methods={paymentMethods} enabled={collectPayment} onEnabled={setCollectPayment} payments={payments} onPayments={setPayments}/></TotalsSection>
+        <TotalsSection form={form}><PaymentCollection form={form} methods={paymentMethods} enabled={collectPayment} onEnabled={changePaymentCollection} payments={payments} onPayments={setPayments}/></TotalsSection>
       </div>
     </div>
   )

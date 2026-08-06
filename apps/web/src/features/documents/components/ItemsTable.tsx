@@ -14,8 +14,10 @@ export function ItemsTable({ form }: Props) {
   const { register, control } = form
   const { fields, append, remove } = useFieldArray({ control, name: "items" })
   const watchedItems = useWatch({ control, name: "items" })
+  const canAddItem = Boolean(watchedItems.at(-1)?.description.trim())
 
   const addItem = () => {
+    if (!canAddItem) return
     append({ id: generateId(), description: "", unit: "", quantity: 1, unit_price: 0, discount_percent: 0, retention_percent:0, subtotal: 0 })
   }
 
@@ -115,7 +117,7 @@ export function ItemsTable({ form }: Props) {
         </table>
       </div>
 
-      <Button type="button" variant="outline" size="sm" onClick={addItem} className="gap-2">
+      <Button type="button" variant="outline" size="sm" onClick={addItem} disabled={!canAddItem} className="gap-2">
         <Plus className="size-4" />
         إضافة بند
       </Button>
