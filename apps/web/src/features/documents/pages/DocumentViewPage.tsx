@@ -152,12 +152,12 @@ export function DocumentViewPage() {
         </div>
 
         {showTotals?<div className="ms-auto max-w-sm space-y-2 text-sm">
-          <Row label="إجمالي البنود قبل الخصم" value={grossItemsTotal} />
+          <Row label="المجموع الفرعي" value={grossItemsTotal} />
           {lineDiscountTotal > 0 ? <Row label="خصومات البنود" value={lineDiscountTotal} /> : null}
-          {Number(document.discount_total) > 0 ? <Row label="خصم على الفاتورة" value={Number(document.discount_total)} /> : null}
-          <Row label="الوعاء الضريبي" value={Number(document.total)-Number(document.tax_total)} />
+          {Number(document.discount_total) > 0 ? <Row label="خصم على مستوى الفاتورة" value={Number(document.discount_total)} /> : null}
+          <Row label="المبلغ الخاضع للضريبة" value={Number(document.total)-Number(document.tax_total)} />
           <Row label="ضريبة القيمة المضافة 15%" value={Number(document.tax_total)} />
-          <Separator /><Row label="إجمالي الفاتورة" value={Number(document.total)} bold />
+          <Separator /><Row label="إجمالي الفاتورة شامل الضريبة" value={Number(document.total)} bold />
           {Number(document.retention_total) > 0 ? <Row label="حجز ضمان الأعمال" value={Number(document.retention_total)} /> : null}
           {(document.payments?.length ?? 0) > 0 ? <><Separator />{document.payments?.map((payment)=><Row key={payment.id} label={`دفعة مستلمة — ${payment.payment_method_name}`} value={Number(payment.amount)}/>)}</> : null}
           {(Number(document.retention_total)>0 || collectedTotal>0)?<Row label="المبلغ المستحق" value={amountDue} bold />:null}
