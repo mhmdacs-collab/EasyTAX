@@ -11,7 +11,7 @@ export type DocumentType =
   | "proforma"
   | "receipt_voucher";
 
-export type DocumentStatus = "draft" | "issued" | "archived" | "cancelled";
+export type DocumentStatus = "draft" | "issued" | "paid" | "partially_paid" | "archived" | "cancelled";
 
 export type OperationType = "service" | "project";
 

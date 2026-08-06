@@ -94,7 +94,7 @@ export interface Project {
 }
 
 export type DocumentType = "tax_invoice" | "simplified_invoice" | "quotation" | "proforma" | "receipt_voucher";
-export type DocumentStatus = "draft" | "issued" | "archived" | "cancelled";
+export type DocumentStatus = "draft" | "issued" | "paid" | "partially_paid" | "archived" | "cancelled";
 export type OperationType = "service" | "project";
 
 export interface DocumentItem {

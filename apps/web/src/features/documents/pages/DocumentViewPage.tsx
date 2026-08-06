@@ -41,6 +41,8 @@ export function DocumentViewPage() {
 
   const seller = document.organization_snapshot as OrganizationSnapshot
   const customer = document.customer_snapshot
+  const isQuotation = document.type === "quotation"
+  const showTotals = !isQuotation || document.reference_data.show_totals !== false
   const hasUnits = document.items?.some((item) => Boolean(item.unit?.trim())) ?? false
   const sellerAddress = [seller.street, seller.building_number, seller.district, seller.city, seller.postal_code].filter(Boolean).join("، ")
   const customerAddress = [customer.street, customer.building_number, customer.district, customer.city, customer.postal_code].filter(Boolean).join("، ")
@@ -122,7 +124,7 @@ export function DocumentViewPage() {
       <article ref={printAreaRef} data-print-area className="mx-auto max-w-4xl rounded-xl border bg-white p-5 shadow-sm sm:p-8 print:border-0 print:shadow-none">
         <header className="flex justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold">فاتورة ضريبية</h1>
+            <h1 className="text-2xl font-bold">{isQuotation?"عرض سعر":"فاتورة ضريبية"}</h1>
             <p className="font-mono text-primary">{document.status === "draft" ? "مسودة غير صادرة" : document.number}</p>
           </div>
           <div className="flex items-start gap-4">{assetUrls.logo ? <img src={assetUrls.logo} alt="شعار المنشأة" className="h-[5.5rem] w-[8.8rem] object-contain" /> : null}<div className="text-end text-sm"><p>{formatDate(document.issue_date)}</p><p className="text-muted-foreground">{document.status === "issued" ? "صادرة" : "مسودة"}</p></div></div>
@@ -136,26 +138,28 @@ export function DocumentViewPage() {
 
         <div className="my-6 overflow-x-auto">
           <table className="w-full min-w-[620px] text-sm">
-            <thead><tr className="border-b bg-muted/30"><th className="p-2 text-start">البيان</th><th>الكمية</th>{hasUnits ? <th>الوحدة</th> : null}<th>السعر</th><th>الضريبة</th><th className="text-end">الإجمالي</th></tr></thead>
+            <thead><tr className="border-b bg-muted/30"><th className="p-2 text-start">البيان</th><th>الكمية</th>{hasUnits ? <th>الوحدة</th> : null}<th>السعر</th><th>الضريبة</th>{showTotals?<th className="text-end">الإجمالي</th>:null}</tr></thead>
             <tbody>{document.items?.map((item) => (
-              <tr key={item.id} className="border-b"><td className="p-2">{item.description}</td><td className="text-center">{item.quantity}</td>{hasUnits ? <td className="text-center">{item.unit || "—"}</td> : null}<td className="text-center">{formatCurrency(Number(item.unit_price))}</td><td className="text-center">{formatCurrency(Number(item.line_tax))}</td><td className="text-end">{formatCurrency(Number(item.line_total))}</td></tr>
+              <tr key={item.id} className="border-b"><td className="p-2">{item.description}</td><td className="text-center">{item.quantity}</td>{hasUnits ? <td className="text-center">{item.unit || "—"}</td> : null}<td className="text-center">{formatCurrency(Number(item.unit_price))}</td><td className="text-center">{formatCurrency(Number(item.line_tax))}</td>{showTotals?<td className="text-end">{formatCurrency(Number(item.line_total))}</td>:null}</tr>
             ))}</tbody>
           </table>
         </div>
 
-        <div className="ms-auto max-w-sm space-y-2 text-sm">
+        {showTotals?<div className="ms-auto max-w-sm space-y-2 text-sm">
           <Row label="المجموع قبل الضريبة" value={Number(document.subtotal)} />
           {Number(document.discount_total) > 0 ? <Row label="الخصم" value={-Number(document.discount_total)} /> : null}
           <Row label="ضريبة القيمة المضافة 15%" value={Number(document.tax_total)} />
-          {Number(document.retention_total) > 0 ? <Row label="حجز ضمان الأعمال" value={-Number(document.retention_total)} /> : null}
-          <Separator /><Row label="الإجمالي" value={Number(document.total)} bold />
-        </div>
+          <Separator /><Row label="إجمالي الفاتورة" value={Number(document.total)} bold />
+          {Number(document.retention_total) > 0 ? <><Row label="حجز ضمان الأعمال" value={-Number(document.retention_total)} /><Row label="صافي المطلوب" value={Number(document.total)-Number(document.retention_total)} bold /></> : null}
+          {(document.payments?.length ?? 0) > 0 ? <><Separator />{document.payments?.map((payment)=><Row key={payment.id} label={payment.payment_method_name} value={Number(payment.amount)}/>)}<Row label="المبلغ المستحق" value={Math.max(0,Number(document.total)-Number(document.retention_total)-(document.payments??[]).reduce((sum,payment)=>sum+Number(payment.amount),0))} bold /></> : null}
+        </div>:<p className="mt-5 rounded-lg bg-muted/50 p-4 text-sm">جميع الأسعار المذكورة في العرض {document.prices_include_tax?"شاملة":"غير شاملة"} ضريبة القيمة المضافة 15%، وتُحدد الكميات والقيمة النهائية عند الطلب.</p>}
 
-        {document.status === "issued" && seller.business_name && seller.vat_number ? <div className="mt-8 flex justify-center border-t pt-6"><ZatcaQrCode sellerName={seller.business_name} vatNumber={seller.vat_number} invoiceDateTime={document.updated_at} totalWithVat={Number(document.total) + Number(document.retention_total)} vatAmount={Number(document.tax_total)} size={176} /></div> : null}
-        {document.reference_data.payment_method ? <Info label="طريقة السداد" value={document.reference_data.payment_method} /> : null}
+        {!isQuotation&&document.status === "issued" && seller.business_name && seller.vat_number ? <div className="mt-8 flex justify-center border-t pt-6"><ZatcaQrCode sellerName={seller.business_name} vatNumber={seller.vat_number} invoiceDateTime={document.updated_at} totalWithVat={Number(document.total)} vatAmount={Number(document.tax_total)} size={176} /></div> : null}
+        {!isQuotation&&document.reference_data.payment_method ? <Info label="طريقة السداد" value={document.reference_data.payment_method} /> : null}
+        {isQuotation&&(document.terms?.length??0)>0?<div className="mt-6 border-t pt-4"><p className="font-medium">الشروط والأحكام</p><ol className="mt-2 list-decimal space-y-1 pe-5 text-sm text-muted-foreground">{document.terms?.map((term,index)=><li key={index}>{term}</li>)}</ol></div>:null}
         {document.show_bank_details && seller.iban ? <Info label="الحساب البنكي" value={[seller.bank_name, seller.bank_account_name, seller.iban].filter(Boolean).join(" · ")} ltr /> : null}
         {document.notes ? <div className="mt-6 border-t pt-4"><p className="font-medium">ملاحظات</p><p className="whitespace-pre-wrap text-sm text-muted-foreground">{document.notes}</p></div> : null}
-        {(document.show_stamp && seller.stamp_on_invoice && assetUrls.stamp) || (document.show_signature && seller.signature_on_invoice && assetUrls.signature) ? <div className="mt-8 flex justify-end gap-8 border-t pt-5">{document.show_stamp && seller.stamp_on_invoice && assetUrls.stamp ? <img src={assetUrls.stamp} alt="ختم المنشأة" className="h-[7.7rem] w-44 object-contain" /> : null}{document.show_signature && seller.signature_on_invoice && assetUrls.signature ? <img src={assetUrls.signature} alt="توقيع المنشأة" className="h-[7.7rem] w-44 object-contain" /> : null}</div> : null}
+        {(document.show_stamp && assetUrls.stamp) || (document.show_signature && assetUrls.signature) ? <div className="mt-8 flex justify-end gap-8 border-t pt-5">{document.show_stamp && assetUrls.stamp ? <img src={assetUrls.stamp} alt="ختم المنشأة" className="h-[7.7rem] w-44 object-contain" /> : null}{document.show_signature && assetUrls.signature ? <img src={assetUrls.signature} alt="توقيع المنشأة" className="h-[7.7rem] w-44 object-contain" /> : null}</div> : null}
       </article>
     </div>
   )

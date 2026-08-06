@@ -66,21 +66,26 @@ export async function fetchBrandingAssetUrl(kind: BrandingAssetKind) {
 }
 
 export type DocumentDraftInput = {
+  type: "invoice" | "quotation"
   customer_id: string; issue_date: string; due_date?: string; prices_include_tax: boolean
   retention_basis?: "before_tax" | "including_tax"; discount_amount: number; notes?: string
   show_bank_details: boolean; show_stamp: boolean; show_signature: boolean
-  reference_data: { purchase_order?: string; reference_number?: string; payment_method?: string }
+  reference_data: { purchase_order?: string; reference_number?: string; payment_method?: string; show_totals?: boolean }
+  payments: Array<{ payment_method_name: string; amount: number }>
+  terms: string[]
   items: Array<{ description: string; unit?: string; quantity: number; unit_price: number; discount_percent: number; retention_percent: number }>
 }
 export const createDocumentDraft = (input: DocumentDraftInput) => request<{ document_id: string }>("/documents", { method: "POST", body: JSON.stringify(input) })
 export const updateDocumentDraft = (id: string, input: DocumentDraftInput) => request<{ document_id: string }>(`/documents/${id}`, { method: "PUT", body: JSON.stringify(input) })
 export const issueDocumentDraft = (id: string) => request<{ document: { id: string; number: string } }>(`/documents/${id}/issue`, { method: "POST" })
 export type CentralDocument = {
-  id:string; type:"invoice"; number:string; issue_date:string; due_date?:string; status:"draft"|"issued"|"cancelled"
+  id:string; type:"invoice"|"quotation"; number:string; issue_date:string; due_date?:string; status:"draft"|"issued"|"paid"|"partially_paid"|"cancelled"
   prices_include_tax:boolean; subtotal:number|string; discount_total:number|string; tax_total:number|string; retention_total:number|string; total:number|string; notes?:string
-  show_bank_details:boolean; show_stamp:boolean; show_signature:boolean; reference_data:{ payment_method?:string; purchase_order?:string; reference_number?:string }
+  show_bank_details:boolean; show_stamp:boolean; show_signature:boolean; reference_data:{ payment_method?:string; purchase_order?:string; reference_number?:string; show_totals?:boolean }
   customer_snapshot:CentralCustomer; organization_snapshot:Record<string,unknown>; created_at:string; updated_at:string
   items?:Array<{id:string;description:string;unit?:string;quantity:number|string;unit_price:number|string;discount:number|string;tax_rate:number|string;retention_rate:number|string;line_subtotal:number|string;line_tax:number|string;line_retention:number|string;line_total:number|string}>
+  payments?:Array<{id:string;payment_method_name:string;amount:number|string;is_collected:boolean;paid_at?:string}>
+  terms?:string[]
 }
 export const listDocuments = () => request<{ documents: CentralDocument[] }>("/documents")
 export const fetchDocument = (id:string) => request<{ document: CentralDocument }>(`/documents/${id}`)
