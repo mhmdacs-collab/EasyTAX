@@ -4,6 +4,8 @@ import { z } from "zod"
 import { zValidator } from "@hono/zod-validator"
 import { auth } from "../lib/auth"
 import { sql, withTransaction } from "../lib/db"
+import { issueReceipt } from "../lib/receiptService"
+import { calculateDocument } from "../lib/documentCalculations"
 
 export const documentsRouter = new Hono()
 
@@ -32,31 +34,6 @@ const draftSchema = z.object({
   items: z.array(itemSchema).min(1),
 })
 
-function calculate(body: z.infer<typeof draftSchema>) {
-  const round = (value: number) => Math.round(value * 100) / 100
-  const lines = body.items.map((item, index) => {
-    const gross = item.quantity * item.unit_price
-    const discount = gross * item.discount_percent / 100
-    const afterDiscount = gross - discount
-    const beforeTax = body.prices_include_tax ? afterDiscount / 1.15 : afterDiscount
-    const tax = body.prices_include_tax ? afterDiscount - beforeTax : beforeTax * 0.15
-    const retentionBase = body.retention_basis === "including_tax" ? beforeTax + tax : beforeTax
-    const retention = retentionBase * item.retention_percent / 100
-    return { ...item, sort_order: index, discount: round(discount), line_subtotal: round(beforeTax), line_tax: round(tax), line_retention: round(retention), line_total: round(beforeTax + tax) }
-  })
-  const subtotal = round(lines.reduce((sum, line) => sum + line.line_subtotal, 0))
-  const rawTaxTotal = lines.reduce((sum, line) => sum + line.line_tax, 0)
-  const maxDiscount = body.prices_include_tax ? subtotal + rawTaxTotal : subtotal
-  const safeDiscount = Math.min(maxDiscount, Math.max(0, body.discount_amount))
-  const safeDiscountBeforeTax = body.prices_include_tax ? safeDiscount / 1.15 : safeDiscount
-  const discountRatio = subtotal > 0 ? Math.max(0, subtotal - safeDiscountBeforeTax) / subtotal : 1
-  const taxTotal = round(rawTaxTotal * discountRatio)
-  const retentionTotal = round(lines.reduce((sum, line) => sum + line.line_retention, 0) * discountRatio)
-  const total = round(Math.max(0, subtotal - safeDiscountBeforeTax + taxTotal))
-  const payableTotal = round(Math.max(0, total - retentionTotal))
-  return { lines, subtotal, discountTotal: round(safeDiscount), taxTotal, retentionTotal, total, payableTotal }
-}
-
 documentsRouter.get("/", async (c) => {
   const organizationId = await getOrganizationId(c.req.raw.headers)
   if (!organizationId) return c.json({ error: "غير مصرح" }, 401)
@@ -72,7 +49,7 @@ documentsRouter.get("/:id", async (c) => {
 })
 
 async function saveDraft(organizationId: string, id: string, body: z.infer<typeof draftSchema>, update: boolean) {
-  const totals = calculate(body)
+  const totals = calculateDocument(body)
   const collectedTotal = Math.round(body.payments.reduce((sum, payment) => sum + payment.amount, 0) * 100) / 100
   if (collectedTotal > totals.payableTotal) return { error: "PAYMENTS_EXCEED_TOTAL" as const }
   const dueTotal = Math.round((totals.payableTotal - collectedTotal) * 100) / 100
@@ -113,7 +90,7 @@ documentsRouter.post("/:id/issue", async (c) => {
   const organizationId = await getOrganizationId(c.req.raw.headers)
   if (!organizationId) return c.json({ error: "غير مصرح" }, 401)
   const result = await withTransaction(async (client) => {
-    const draft = await client.query("SELECT id,type FROM documents WHERE id=$1 AND organization_id=$2 AND status='draft' AND deleted_at IS NULL FOR UPDATE", [c.req.param("id"), organizationId])
+    const draft = await client.query("SELECT * FROM documents WHERE id=$1 AND organization_id=$2 AND status='draft' AND deleted_at IS NULL FOR UPDATE", [c.req.param("id"), organizationId])
     if (!draft.rows[0]) return null
     const organization = await client.query("SELECT * FROM organizations WHERE id=$1", [organizationId])
     const seller = organization.rows[0] as Record<string, unknown> | undefined
@@ -128,9 +105,48 @@ documentsRouter.post("/:id/issue", async (c) => {
     const number = String(candidate).padStart(5,"0")
     await client.query("UPDATE document_sequences SET next_number=$1 WHERE organization_id=$2 AND document_type=$3", [candidate+1,organizationId,documentType])
     const issued = await client.query(`UPDATE documents SET number=$1,status='issued',uuid=$2,issue_time=LOCALTIME,organization_snapshot=$3,updated_at=NOW(),sync_version=sync_version+1 WHERE id=$4 RETURNING id,number`, [number,randomUUID(),JSON.stringify(organization.rows[0]),c.req.param("id")])
-    return issued.rows[0] as { id:string; number:string }
+    const issuedRow=issued.rows[0] as {id:string;number:string}
+    if(documentType==="invoice"){
+      const payments=await client.query("SELECT * FROM document_payments WHERE document_id=$1 AND is_collected=TRUE ORDER BY created_at FOR UPDATE",[c.req.param("id")])
+      const customer=draft.rows[0].customer_snapshot as Record<string,unknown>
+      const seller=organization.rows[0] as Record<string,unknown>
+      for(const payment of payments.rows)await issueReceipt(client,{organizationId,customerId:String(draft.rows[0].customer_id),payerName:String(customer.name??""),payerPhone:String(customer.phone??"")||null,payerEmail:String(customer.email??"")||null,payerVatNumber:String(customer.vat_number??"")||null,receiptDate:String(draft.rows[0].issue_date).slice(0,10),amount:Number(payment.amount),paymentMethodName:String(payment.payment_method_name),referenceNumber:`فاتورة رقم ${number}`,organizationSnapshot:seller,showStamp:Boolean(seller.stamp_url&&seller.stamp_on_receipt),showSignature:Boolean(seller.signature_url&&seller.signature_on_receipt),sourceDocumentId:c.req.param("id"),sourcePaymentId:String(payment.id),requestId:`invoice-payment:${payment.id}`})
+    }
+    await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,snapshot) VALUES($1,'document',$2,'issued',$3)",[organizationId,c.req.param("id"),JSON.stringify({...draft.rows[0],number,status:"issued"})])
+    return issuedRow
   })
   if (!result) return c.json({ error: "المسودة غير موجودة أو صادرة مسبقًا" }, 409)
   if ("error" in result) return c.json({ error: "أكمل السجل التجاري والعنوان الوطني للمنشأة قبل إصدار الفاتورة" }, 422)
   return c.json({ document: result })
+})
+
+const cancelSchema=z.object({reason:z.string().trim().min(3).max(500)})
+documentsRouter.post("/:id/cancel",zValidator("json",cancelSchema),async(c)=>{
+  const organizationId=await getOrganizationId(c.req.raw.headers);if(!organizationId)return c.json({error:"غير مصرح"},401)
+  const reason=c.req.valid("json").reason
+  const result=await withTransaction(async(client)=>{
+    const document=await client.query("SELECT * FROM documents WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL FOR UPDATE",[c.req.param("id"),organizationId])
+    const row=document.rows[0] as Record<string,unknown>|undefined
+    if(!row)return {error:"NOT_FOUND" as const}
+    if(row.status==="cancelled")return {error:"ALREADY_CANCELLED" as const}
+    if(row.status==="draft")return {error:"DRAFT" as const}
+    const activeReceipts=await client.query(`
+      SELECT 1
+      WHERE EXISTS (
+        SELECT 1 FROM customer_receipts
+        WHERE source_document_id=$1 AND status='issued'
+      ) OR EXISTS (
+        SELECT 1 FROM document_payments
+        WHERE document_id=$1 AND is_collected=TRUE
+      )
+      LIMIT 1
+    `,[row.id])
+    if(activeReceipts.rows[0])return {error:"ACTIVE_RECEIPTS" as const}
+    const cancelled=await client.query("UPDATE documents SET status='cancelled',cancelled_at=NOW(),cancellation_reason=$1,updated_at=NOW(),sync_version=sync_version+1 WHERE id=$2 RETURNING *",[reason,row.id])
+    await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,reason,snapshot) VALUES($1,'document',$2,'cancelled',$3,$4)",[organizationId,row.id,reason,JSON.stringify(cancelled.rows[0])])
+    return {document:cancelled.rows[0]}
+  })
+  if("document" in result)return c.json(result)
+  const messages={NOT_FOUND:"المستند غير موجود",ALREADY_CANCELLED:"المستند ملغى مسبقًا",DRAFT:"احذف المسودة أو عدلها بدل إلغائها",ACTIVE_RECEIPTS:"اعكس سندات القبض المرتبطة أولًا قبل إلغاء الفاتورة"} as const
+  return c.json({error:messages[result.error]},result.error==="NOT_FOUND"?404:409)
 })

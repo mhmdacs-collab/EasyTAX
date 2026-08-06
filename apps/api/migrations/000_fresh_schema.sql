@@ -3,7 +3,7 @@ DROP SCHEMA IF EXISTS neon_auth CASCADE;
 
 DROP TABLE IF EXISTS
   sync_log, tax_returns, tax_periods, expenses, purchase_invoice_items,
-  purchase_invoices, expense_categories, document_terms, customer_receipts, document_payments,
+  purchase_invoices, expense_categories, financial_audit_events, document_terms, customer_receipts, document_payments,
   document_items, documents, projects, catalog_items, suppliers, customers,
   document_sequences, quotation_terms, payment_methods, activation_tokens,
   subscriptions, subscription_events, organizations, admin_users, verification, session, account,
@@ -219,7 +219,7 @@ CREATE TABLE documents (
   payment_details JSONB NOT NULL DEFAULT '[]'::jsonb,
   reference_data JSONB NOT NULL DEFAULT '{}'::jsonb,
   source_document_id TEXT REFERENCES documents(id) ON DELETE RESTRICT,
-  correction_reason TEXT,
+  correction_reason TEXT, cancelled_at TIMESTAMPTZ, cancellation_reason TEXT,
   zatca_status TEXT NOT NULL DEFAULT 'not_submitted', zatca_icv BIGINT,
   zatca_pih TEXT, zatca_invoice_hash TEXT, zatca_qr_payload TEXT,
   zatca_response JSONB NOT NULL DEFAULT '{}'::jsonb, zatca_cleared_at TIMESTAMPTZ,
@@ -263,11 +263,28 @@ CREATE TABLE customer_receipts (
   payer_name TEXT NOT NULL, payer_phone TEXT, payer_email TEXT, payer_vat_number TEXT,
   reference_number TEXT, notes TEXT, organization_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
   show_stamp BOOLEAN NOT NULL DEFAULT FALSE, show_signature BOOLEAN NOT NULL DEFAULT FALSE,
-  issued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  issued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), status TEXT NOT NULL DEFAULT 'issued' CHECK (status IN ('issued','cancelled')),
+  cancelled_at TIMESTAMPTZ, cancellation_reason TEXT,
+  source_document_id TEXT REFERENCES documents(id) ON DELETE RESTRICT,
+  source_payment_id TEXT REFERENCES document_payments(id) ON DELETE RESTRICT,
+  request_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (organization_id, number)
 );
 CREATE INDEX customer_receipts_customer_date_idx ON customer_receipts (organization_id, customer_id, receipt_date, created_at);
+CREATE UNIQUE INDEX customer_receipts_source_payment_uidx ON customer_receipts (source_payment_id) WHERE source_payment_id IS NOT NULL;
+CREATE UNIQUE INDEX customer_receipts_request_uidx ON customer_receipts (organization_id, request_id) WHERE request_id IS NOT NULL;
+
+CREATE TABLE financial_audit_events (
+  id BIGSERIAL PRIMARY KEY,
+  organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  entity_type TEXT NOT NULL CHECK (entity_type IN ('document','receipt')),
+  entity_id TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('issued','cancelled','reversed')),
+  reason TEXT, snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX financial_audit_org_created_idx ON financial_audit_events (organization_id, created_at DESC);
 
 CREATE TABLE zatca_connections (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
