@@ -149,14 +149,14 @@ export function DocumentViewPage() {
           <Row label="ضريبة القيمة المضافة 15%" value={Number(document.tax_total)} />
           {Number(document.retention_total) > 0 ? <Row label="حجز ضمان الأعمال" value={-Number(document.retention_total)} /> : null}
           <Separator /><Row label="الإجمالي" value={Number(document.total)} bold />
-          {(document.payments?.length ?? 0) > 0 ? <><Separator />{document.payments?.map((payment)=><Row key={payment.id} label={`محصل — ${payment.payment_method_name}`} value={-Number(payment.amount)}/>)}<Row label="المبلغ المستحق" value={Math.max(0,Number(document.total)-(document.payments??[]).reduce((sum,payment)=>sum+Number(payment.amount),0))} bold /></> : null}
+          {(document.payments?.length ?? 0) > 0 ? <><Separator />{document.payments?.map((payment)=><Row key={payment.id} label={payment.payment_method_name} value={Number(payment.amount)}/>)}<Row label="المبلغ المستحق" value={Math.max(0,Number(document.total)-(document.payments??[]).reduce((sum,payment)=>sum+Number(payment.amount),0))} bold /></> : null}
         </div>
 
         {document.status === "issued" && seller.business_name && seller.vat_number ? <div className="mt-8 flex justify-center border-t pt-6"><ZatcaQrCode sellerName={seller.business_name} vatNumber={seller.vat_number} invoiceDateTime={document.updated_at} totalWithVat={Number(document.total) + Number(document.retention_total)} vatAmount={Number(document.tax_total)} size={176} /></div> : null}
         {document.reference_data.payment_method ? <Info label="طريقة السداد" value={document.reference_data.payment_method} /> : null}
         {document.show_bank_details && seller.iban ? <Info label="الحساب البنكي" value={[seller.bank_name, seller.bank_account_name, seller.iban].filter(Boolean).join(" · ")} ltr /> : null}
         {document.notes ? <div className="mt-6 border-t pt-4"><p className="font-medium">ملاحظات</p><p className="whitespace-pre-wrap text-sm text-muted-foreground">{document.notes}</p></div> : null}
-        {(document.show_stamp && seller.stamp_on_invoice && assetUrls.stamp) || (document.show_signature && seller.signature_on_invoice && assetUrls.signature) ? <div className="mt-8 flex justify-end gap-8 border-t pt-5">{document.show_stamp && seller.stamp_on_invoice && assetUrls.stamp ? <img src={assetUrls.stamp} alt="ختم المنشأة" className="h-[7.7rem] w-44 object-contain" /> : null}{document.show_signature && seller.signature_on_invoice && assetUrls.signature ? <img src={assetUrls.signature} alt="توقيع المنشأة" className="h-[7.7rem] w-44 object-contain" /> : null}</div> : null}
+        {(document.show_stamp && assetUrls.stamp) || (document.show_signature && assetUrls.signature) ? <div className="mt-8 flex justify-end gap-8 border-t pt-5">{document.show_stamp && assetUrls.stamp ? <img src={assetUrls.stamp} alt="ختم المنشأة" className="h-[7.7rem] w-44 object-contain" /> : null}{document.show_signature && assetUrls.signature ? <img src={assetUrls.signature} alt="توقيع المنشأة" className="h-[7.7rem] w-44 object-contain" /> : null}</div> : null}
       </article>
     </div>
   )
