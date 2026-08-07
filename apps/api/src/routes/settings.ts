@@ -24,7 +24,8 @@ settingsRouter.get("/", async (c) => {
       stamp_on_invoice, stamp_on_quotation, stamp_on_receipt,
       signature_on_invoice, signature_on_quotation, signature_on_receipt,
       prices_include_tax, retention_enabled, invoice_default_notes,
-      quotation_default_notes, receipt_default_notes, receipt_default_phrase
+      quotation_default_notes, receipt_default_notes, receipt_default_phrase,
+      financial_reporting_enabled, legal_form, fiscal_year_start_month
     FROM organizations WHERE user_id = ${userId} AND deleted_at IS NULL LIMIT 1`
   if (!organizations[0]) return c.json({ error: "المنشأة غير موجودة" }, 404)
   const organization = organizations[0] as Record<string, unknown>
@@ -54,6 +55,9 @@ const settingsSchema = z.object({
   receipt_default_notes: optionalText, receipt_default_phrase: optionalText,
   stamp_on_invoice: z.boolean(), stamp_on_quotation: z.boolean(), stamp_on_receipt: z.boolean(),
   signature_on_invoice: z.boolean(), signature_on_quotation: z.boolean(), signature_on_receipt: z.boolean(),
+  financial_reporting_enabled: z.boolean(),
+  legal_form: z.enum(["sole_establishment", "limited_liability", "simplified_joint_stock", "joint_stock", "partnership", "limited_partnership"]),
+  fiscal_year_start_month: z.coerce.number().int().min(1).max(12),
   payment_methods: z.array(z.object({ name: z.string().trim().min(1), is_collected: z.boolean(), is_default: z.boolean(), is_active: z.boolean() })),
   quotation_terms: z.array(z.string().trim().min(1)),
   sequences: z.object({ invoice: z.coerce.number().int().positive(), quotation: z.coerce.number().int().positive(), receipt: z.coerce.number().int().positive() }),
@@ -77,15 +81,17 @@ settingsRouter.put("/", zValidator("json", settingsSchema), async (c) => {
       receipt_default_notes=$21, receipt_default_phrase=$22,
       stamp_on_invoice=$23, stamp_on_quotation=$24, stamp_on_receipt=$25,
       signature_on_invoice=$26, signature_on_quotation=$27, signature_on_receipt=$28,
+      financial_reporting_enabled=$29, legal_form=$30, fiscal_year_start_month=$31,
       document_settings_version=document_settings_version+1, updated_at=NOW()
-      WHERE user_id=$29 AND deleted_at IS NULL RETURNING id`, [
+      WHERE user_id=$32 AND deleted_at IS NULL RETURNING id`, [
       body.commercial_registration, body.phone || null, body.email || null, body.show_phone_on_documents, body.show_email_on_documents,
       body.city, body.district, body.street, body.building_number, body.postal_code, body.additional_number || null, body.short_address || null,
       body.bank_enabled, body.bank_enabled ? body.bank_name : null, body.bank_enabled ? body.bank_account_name : null,
       body.bank_enabled ? body.iban : null, body.prices_include_tax, body.retention_enabled, body.invoice_default_notes || null,
       body.quotation_default_notes || null, body.receipt_default_notes || null, body.receipt_default_phrase || null,
       body.stamp_on_invoice, body.stamp_on_quotation, body.stamp_on_receipt,
-      body.signature_on_invoice, body.signature_on_quotation, body.signature_on_receipt, userId])
+      body.signature_on_invoice, body.signature_on_quotation, body.signature_on_receipt,
+      body.financial_reporting_enabled, body.legal_form, body.fiscal_year_start_month, userId])
     if (!result.rows[0]) return false
     const organizationId = result.rows[0].id as string
     await client.query("DELETE FROM payment_methods WHERE organization_id=$1", [organizationId])

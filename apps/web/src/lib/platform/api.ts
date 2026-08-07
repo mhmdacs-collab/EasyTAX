@@ -146,3 +146,17 @@ export type TaxReturnSummary = {
   notice:string
 }
 export const fetchTaxReturnSummary = (year?:number,quarter?:number) => request<TaxReturnSummary>(`/tax-returns/current${year&&quarter?`?year=${year}&quarter=${quarter}`:""}`)
+
+export type ExpenseCategory = "work_costs" | "payroll" | "rent_utilities" | "vehicles_transport" | "admin_marketing_professional" | "asset_equipment" | "other"
+export type FinancialClass = "direct_cost" | "operating_expense" | "employee_expense" | "fixed_asset" | "prepayment" | "other_expense"
+export type CentralExpense = {
+  id:string; expense_date:string; category:ExpenseCategory; financial_class:FinancialClass; description:string
+  amount:number|string; payment_status:"paid"|"unpaid"|"partially_paid"; paid_amount:number|string
+  payment_method?:string; supplier_name?:string; reference_number?:string; project_reference?:string; notes?:string
+  source_type:"manual"|"tax_purchase"; created_at:string
+}
+export type ExpenseInput = Omit<CentralExpense,"id"|"source_type"|"created_at"|"amount"|"paid_amount"> & { amount:number; paid_amount:number }
+export type ExpenseSummary = { total:number|string; paid:number|string; outstanding:number|string; direct_costs:number|string; operating_expenses:number|string; asset_purchases:number|string }
+export const listExpenses = (year:number,month:number) => request<{expenses:CentralExpense[];summary:ExpenseSummary;period:{year:number;month:number;starts_on:string;ends_on:string}}>(`/expenses?year=${year}&month=${month}`)
+export const createExpense = (input:ExpenseInput) => request<{expense:CentralExpense}>("/expenses",{method:"POST",body:JSON.stringify(input)})
+export const deleteExpense = (id:string) => request<{ok:true}>(`/expenses/${id}`,{method:"DELETE"})

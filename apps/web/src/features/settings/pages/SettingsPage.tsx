@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Building2, CreditCard, FileText, Landmark, Palette, Save } from "lucide-react"
+import { Building2, CreditCard, FileText, Landmark, Palette, Save, ChartNoAxesCombined } from "lucide-react"
 import { BrandingSettings } from "../components/BrandingSettings"
 import { fetchSettings, saveSettings, type SettingsPayload } from "@/lib/platform/api"
 import { Button } from "@/shared/components/ui/button"
@@ -13,6 +13,7 @@ const tabs = [
   ["organization", "بيانات المنشأة", Building2], ["address", "العنوان والتواصل", Landmark],
   ["bank", "الحساب البنكي", CreditCard], ["documents", "إعدادات المستندات", FileText],
   ["branding", "الهوية البصرية", Palette],
+  ["financial", "القوائم المالية", ChartNoAxesCombined],
 ] as const
 
 export default function SettingsPage() {
@@ -25,6 +26,8 @@ export default function SettingsPage() {
   }).catch((error:unknown)=>{ toast({title:"تعذر تحميل الإعدادات",description:error instanceof Error?error.message:"حاول مرة أخرى",variant:"error"}); }) }, [])
   if (!form) return <div className="p-6 text-muted-foreground">جاري تحميل الإعدادات...</div>
   const set=(key:string,value:string|boolean|number)=>{ setForm((current)=>current ? ({...current,[key]:value}) : current); }
+  const financialEnabled=form.financial_reporting_enabled === true
+  const legalForm=typeof form.legal_form === "string" ? form.legal_form : "sole_establishment"
   const field=(key:string,label:string, options?:{readOnly?:boolean;required?:boolean;dir?:"ltr"})=>{const value=form[key];return <div className="space-y-1.5">
     <Label htmlFor={key}>{label}{options?.required ? " *" : ""}</Label>
     <Input id={key} value={typeof value==="string"||typeof value==="number"?String(value):""} readOnly={options?.readOnly} required={options?.required} dir={options?.dir} className={options?.readOnly?"bg-muted":""} onChange={(e)=>{ set(key,["invoice","quotation","receipt"].includes(key)?Number(e.target.value):e.target.value); }} />
@@ -41,6 +44,7 @@ export default function SettingsPage() {
     stamp_on_invoice:Boolean(form.stamp_on_invoice),stamp_on_quotation:Boolean(form.stamp_on_quotation),stamp_on_receipt:Boolean(form.stamp_on_receipt),
     signature_on_invoice:Boolean(form.signature_on_invoice),signature_on_quotation:Boolean(form.signature_on_quotation),signature_on_receipt:Boolean(form.signature_on_receipt),
     sequences:{invoice:form.invoice,quotation:form.quotation,receipt:form.receipt},
+    financial_reporting_enabled:Boolean(form.financial_reporting_enabled),legal_form:form.legal_form || "sole_establishment",fiscal_year_start_month:Number(form.fiscal_year_start_month)||1,
   });toast({title:"تم الحفظ",description:"حُفظت الإعدادات مركزيًا",variant:"success"})}catch(e){toast({title:"تعذر الحفظ",description:e instanceof Error?e.message:"حاول مرة أخرى",variant:"error"})}finally{setSaving(false)}}
   return <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6" dir="rtl">
     <div><h1 className="text-2xl font-bold">الإعدادات</h1><p className="text-sm text-muted-foreground">كل ما يظهر في مستندات منشأتك ويُحفظ مركزيًا.</p></div>
@@ -63,6 +67,7 @@ export default function SettingsPage() {
           <div><h3 className="mb-3 font-medium">عدادات المستندات</h3><div className="grid gap-4 sm:grid-cols-3">{field("invoice","عداد الفاتورة",{required:true,dir:"ltr"})}{field("quotation","عداد عرض السعر",{required:true,dir:"ltr"})}{field("receipt","عداد سند القبض / الاستلام",{required:true,dir:"ltr"})}</div><p className="mt-2 text-xs text-muted-foreground">القيمة الافتراضية 00001، ويُحجز الرقم النهائي عند الإصدار فقط.</p></div>
           <div className="space-y-2"><Label>قالب عام لشروط عروض الأسعار</Label><Textarea rows={6} value={form.quotation_terms.join("\n")} onChange={(e)=>{ setForm({...form,quotation_terms:e.target.value.split("\n").filter(Boolean)}); }}/><p className="text-xs text-muted-foreground">كل سطر بند مستقل ويمكن تعديله داخل العرض دون تغيير القالب.</p></div></>}
         {active==="branding"&&<BrandingSettings form={form} setForm={setForm} />}
+        {active==="financial"&&<><h2 className="text-lg font-semibold">القوائم المالية</h2><Check label="تفعيل المصروفات والتقارير والقوائم المالية" checked={financialEnabled} onChange={(value)=>{set("financial_reporting_enabled",value)}}/><p className="text-sm text-muted-foreground">بعد التفعيل يسجل النظام المصروفات بتصنيفات بسيطة، ثم يرتبها خلفيًا لإعداد تقارير الربح والخسارة ومعالج نهاية السنة.</p>{financialEnabled?<div className="grid gap-4 sm:grid-cols-2"><div className="space-y-1.5"><Label>الشكل القانوني</Label><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={legalForm} onChange={(e)=>{set("legal_form",e.target.value)}}><option value="sole_establishment">مؤسسة فردية</option><option value="limited_liability">شركة ذات مسؤولية محدودة</option><option value="simplified_joint_stock">شركة مساهمة مبسطة</option><option value="joint_stock">شركة مساهمة</option><option value="partnership">شركة تضامن</option><option value="limited_partnership">شركة توصية بسيطة</option></select></div>{field("fiscal_year_start_month","شهر بداية السنة المالية",{required:true,dir:"ltr"})}<p className="text-xs text-muted-foreground sm:col-span-2">القيمة 1 تعني يناير. سيستخدمها معالج نهاية السنة لتحديد فترة القوائم والمقارنة السنوية.</p></div>:null}</>}
         <div className="flex justify-end border-t pt-4"><Button type="submit" loading={saving} className="gap-2"><Save className="size-4"/>حفظ التعديلات</Button></div>
       </form>
     </div>

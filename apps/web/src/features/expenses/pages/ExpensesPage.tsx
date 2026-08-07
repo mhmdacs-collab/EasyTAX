@@ -1,0 +1,46 @@
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react"
+import { Plus, Trash2, WalletCards } from "lucide-react"
+import { createExpense, deleteExpense, listExpenses, type CentralExpense, type ExpenseSummary, type ExpenseCategory } from "@/lib/platform/api"
+import { expenseCategories, categoryByValue, financialClassForCategory } from "../lib/categories"
+import { Button } from "@/shared/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card"
+import { Input } from "@/shared/components/ui/input"
+import { Label } from "@/shared/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select"
+import { Textarea } from "@/shared/components/ui/textarea"
+import { toast } from "@/shared/hooks/useToast"
+
+const money = new Intl.NumberFormat("en-US", { minimumFractionDigits:2, maximumFractionDigits:2 })
+const today = new Date()
+const emptySummary:ExpenseSummary = { total:0, paid:0, outstanding:0, direct_costs:0, operating_expenses:0, asset_purchases:0 }
+
+export function ExpensesPage() {
+  const [year,setYear]=useState(today.getFullYear())
+  const [month,setMonth]=useState(today.getMonth()+1)
+  const [expenses,setExpenses]=useState<CentralExpense[]>([])
+  const [summary,setSummary]=useState<ExpenseSummary>(emptySummary)
+  const [open,setOpen]=useState(false)
+  const [loading,setLoading]=useState(true)
+  const load=useCallback(async()=>{setLoading(true);try{const result=await listExpenses(year,month);setExpenses(result.expenses);setSummary(result.summary)}catch(error){toast({title:"تعذر تحميل المصروفات",description:error instanceof Error?error.message:"حاول مرة أخرى",variant:"error"})}finally{setLoading(false)}},[year,month])
+  useEffect(()=>{void load()},[load])
+  const remove=async(id:string)=>{if(!window.confirm("حذف هذا المصروف؟"))return;try{await deleteExpense(id);await load();toast({title:"تم حذف المصروف",variant:"success"})}catch(error){toast({title:"تعذر الحذف",description:error instanceof Error?error.message:"حاول مرة أخرى",variant:"error"})}}
+
+  return <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6" dir="rtl">
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold">المصروفات</h1><p className="text-sm text-muted-foreground">سجّل المصروف ببساطة، ويتولى النظام تصنيفه للتقارير المالية.</p></div><Button onClick={()=>{setOpen(true)}} className="gap-2"><Plus className="size-4"/>إضافة مصروف</Button></div>
+    <div className="flex gap-3"><Input aria-label="السنة" type="number" min={2020} max={2100} className="w-28" value={year} onChange={(e)=>{setYear(Number(e.target.value))}}/><Select value={String(month)} onValueChange={(value)=>{setMonth(Number(value))}}><SelectTrigger className="w-36"><SelectValue/></SelectTrigger><SelectContent>{Array.from({length:12},(_,index)=><SelectItem key={index+1} value={String(index+1)}>{new Intl.DateTimeFormat("ar-SA",{month:"long"}).format(new Date(2026,index,1))}</SelectItem>)}</SelectContent></Select></div>
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Summary label="إجمالي المصروفات" value={summary.total}/><Summary label="المدفوع" value={summary.paid}/><Summary label="المستحق" value={summary.outstanding}/><Summary label="مشتريات الأصول" value={summary.asset_purchases}/></div>
+    <Card><CardHeader><CardTitle className="text-base">مصروفات الشهر</CardTitle></CardHeader><CardContent>{loading?<p className="py-8 text-center text-muted-foreground">جاري التحميل...</p>:expenses.length===0?<div className="py-12 text-center text-muted-foreground"><WalletCards className="mx-auto mb-3 size-9"/><p>لا توجد مصروفات مسجلة لهذه الفترة.</p></div>:<div className="space-y-2">{expenses.map((expense)=><div key={expense.id} className="grid gap-2 rounded-lg border p-3 sm:grid-cols-[110px_1fr_180px_130px_44px] sm:items-center"><span className="text-sm" dir="ltr">{expense.expense_date}</span><div><p className="font-medium">{expense.description}</p><p className="text-xs text-muted-foreground">{categoryByValue.get(expense.category)?.label}{expense.supplier_name?` · ${expense.supplier_name}`:""}</p></div><span className="text-sm">{expense.payment_status==="paid"?"مدفوع":expense.payment_status==="unpaid"?"مستحق":"مدفوع جزئيًا"}</span><strong dir="ltr">{money.format(Number(expense.amount))} ر.س</strong><Button aria-label="حذف المصروف" variant="ghost" size="icon" disabled={expense.source_type!=="manual"} onClick={()=>{void remove(expense.id)}}><Trash2 className="size-4 text-destructive"/></Button></div>)}</div>}</CardContent></Card>
+    {open?<ExpenseDialog onClose={()=>{setOpen(false)}} onSaved={async()=>{setOpen(false);await load()}}/>:null}
+  </div>
+}
+
+function Summary({label,value}:{label:string;value:number|string}){return <Card><CardContent className="pt-5"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-xl font-bold" dir="ltr">{money.format(Number(value))} ر.س</p></CardContent></Card>}
+
+function ExpenseDialog({onClose,onSaved}:{onClose:()=>void;onSaved:()=>Promise<void>}){
+  const [category,setCategory]=useState<ExpenseCategory>("work_costs"),[description,setDescription]=useState(""),[date,setDate]=useState(new Date().toISOString().slice(0,10)),[amount,setAmount]=useState("")
+  const [status,setStatus]=useState<"paid"|"unpaid"|"partially_paid">("paid"),[paidAmount,setPaidAmount]=useState(""),[supplier,setSupplier]=useState(""),[paymentMethod,setPaymentMethod]=useState(""),[reference,setReference]=useState(""),[notes,setNotes]=useState(""),[saving,setSaving]=useState(false)
+  const submit=async(e:FormEvent)=>{e.preventDefault();const numericAmount=Number(amount),numericPaid=status==="paid"?numericAmount:status==="unpaid"?0:Number(paidAmount);setSaving(true);try{await createExpense({expense_date:date,category,financial_class:financialClassForCategory(category),description,amount:numericAmount,payment_status:status,paid_amount:numericPaid,payment_method:paymentMethod,supplier_name:supplier,reference_number:reference,project_reference:"",notes});toast({title:"تم تسجيل المصروف",description:"حُفظ مركزيًا وأصبح ضمن التقارير المالية.",variant:"success"});await onSaved()}catch(error){toast({title:"تعذر حفظ المصروف",description:error instanceof Error?error.message:"راجع البيانات",variant:"error"})}finally{setSaving(false)}}
+  return <div className="fixed inset-0 z-50 overflow-y-auto bg-black/45 p-4" role="dialog" aria-modal="true" aria-labelledby="expense-title"><form onSubmit={(e)=>{void submit(e)}} className="mx-auto my-6 max-w-2xl space-y-5 rounded-xl bg-background p-5 shadow-xl"><div><h2 id="expense-title" className="text-xl font-bold">إضافة مصروف</h2><p className="text-sm text-muted-foreground">اختر الوصف الأقرب للعملية، وسنرتب تصنيفها المالي خلفيًا.</p></div><div className="grid gap-3 sm:grid-cols-2">{expenseCategories.map((item)=><button key={item.value} type="button" onClick={()=>{setCategory(item.value)}} className={`rounded-lg border p-3 text-start ${category===item.value?"border-primary bg-primary/5":""}`}><span className="block font-medium">{item.label}</span><span className="text-xs text-muted-foreground">{item.description}</span></button>)}</div><div className="grid gap-4 sm:grid-cols-2"><Field label="وصف المصروف" required><Input required value={description} onChange={(e)=>{setDescription(e.target.value)}} placeholder={category==="payroll"?"رواتب شهر أغسطس 2026":"مثال: إيجار المكتب"}/></Field><Field label="التاريخ" required><Input required type="date" value={date} onChange={(e)=>{setDate(e.target.value)}}/></Field><Field label="المبلغ" required><Input required type="number" min="0.01" step="0.01" dir="ltr" value={amount} onChange={(e)=>{setAmount(e.target.value)}}/></Field><Field label="حالة السداد"><Select value={status} onValueChange={(value:"paid"|"unpaid"|"partially_paid")=>{setStatus(value)}}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent><SelectItem value="paid">مدفوع</SelectItem><SelectItem value="unpaid">مستحق</SelectItem><SelectItem value="partially_paid">مدفوع جزئيًا</SelectItem></SelectContent></Select></Field>{status==="partially_paid"?<Field label="المبلغ المدفوع" required><Input required type="number" min="0" step="0.01" dir="ltr" value={paidAmount} onChange={(e)=>{setPaidAmount(e.target.value)}}/></Field>:null}<Field label="طريقة السداد"><Input value={paymentMethod} onChange={(e)=>{setPaymentMethod(e.target.value)}} placeholder="تحويل بنكي، نقدًا..."/></Field><Field label="المورد أو المستفيد"><Input value={supplier} onChange={(e)=>{setSupplier(e.target.value)}}/></Field><Field label="الرقم المرجعي"><Input value={reference} onChange={(e)=>{setReference(e.target.value)}} dir="ltr"/></Field></div><Field label="ملاحظات"><Textarea value={notes} onChange={(e)=>{setNotes(e.target.value)}}/></Field><div className="flex justify-end gap-2 border-t pt-4"><Button type="button" variant="outline" onClick={onClose}>إلغاء</Button><Button type="submit" loading={saving}>حفظ المصروف</Button></div></form></div>
+}
+
+function Field({label,required,children}:{label:string;required?:boolean;children:ReactNode}){return <div className="space-y-1.5"><Label>{label}{required?" *":""}</Label>{children}</div>}
