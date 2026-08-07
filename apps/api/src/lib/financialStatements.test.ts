@@ -76,6 +76,9 @@ test("keeps purchases, operating expenses and fixed assets in separate classific
     operatingExpenses: 500,
     fixedAssetAdditions: 1_200,
     fixedAssetBalance: 1_200,
+    prepaymentBalance: 350,
+    tradeReceivables: 2_400,
+    tradePayables: 900,
     purchaseCount: 1,
     expenseCount: 4,
   }
@@ -90,6 +93,9 @@ test("keeps purchases, operating expenses and fixed assets in separate classific
   assert.equal(income.cost_of_sales, -3_000)
   assert.equal(income.administrative_expenses, -2_500)
   assert.equal(report.statements.financialPosition.find((row) => row.code === "property_plant_equipment")?.current, 1_200)
+  assert.equal(report.statements.financialPosition.find((row) => row.code === "prepayments")?.current, 350)
+  assert.equal(report.statements.financialPosition.find((row) => row.code === "trade_receivables")?.current, 2_400)
+  assert.equal(report.statements.financialPosition.find((row) => row.code === "trade_payables")?.current, 900)
   assert.ok(report.validation.issues.some((issue) => issue.code === "PURCHASES_DEFAULT_CLASSIFICATION"))
 })
 

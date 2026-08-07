@@ -104,7 +104,12 @@ export default function FinancialStatementsPage() {
     ["المبيعات دون الضريبة", current.revenue],
     ["المشتريات الضريبية", current.taxPurchases],
     ["المصروفات التشغيلية", current.operatingExpenses + current.employeeExpenses + current.otherExpenses],
-    ["ذمم العملاء", current.tradeReceivables],
+    ["رصيد النقد المستنتج", current.systemCashBalance],
+  ] as const
+  const automaticBalances = [
+    ["ذمم العملاء غير المحصلة", current.tradeReceivables, current.prior.tradeReceivables],
+    ["المصاريف المدفوعة مقدمًا", current.prepaymentBalance, current.prior.prepaymentBalance],
+    ["المبالغ المستحقة للموردين", current.tradePayables, current.prior.tradePayables],
   ] as const
 
   return <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6" dir="rtl">
@@ -120,8 +125,13 @@ export default function FinancialStatementsPage() {
       <CardContent className="space-y-2">{report.validation.issues.length === 0 ? <p className="text-sm text-muted-foreground">لا توجد ملاحظات.</p> : report.validation.issues.map((issue) => <div key={issue.code} className={`rounded-md px-3 py-2 text-sm ${issue.severity === "error" ? "bg-red-50 text-red-800" : issue.severity === "warning" ? "bg-amber-50 text-amber-900" : "bg-sky-50 text-sky-800"}`}>{issue.message}{issue.difference === undefined ? "" : ` الفرق: ${money.format(issue.difference)} ر.س`}</div>)}</CardContent>
     </Card>
 
+    <Card className="border-emerald-200 bg-emerald-50/30">
+      <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><CheckCircle2 className="text-emerald-600" />محسوبة تلقائيًا بواسطة EasyTAX</CardTitle><p className="text-sm text-muted-foreground">تُستخرج من الفواتير والسندات والمصروفات المسجلة، لذلك لا تحتاج إلى إدخالها أو تعديلها.</p></CardHeader>
+      <CardContent><div className="overflow-x-auto"><table className="w-full min-w-[520px] text-sm"><thead><tr className="border-b text-muted-foreground"><th className="py-2 text-right font-medium">الرصيد</th><th className="py-2 text-center font-medium">{year}</th><th className="py-2 text-center font-medium">{year - 1}</th></tr></thead><tbody>{automaticBalances.map(([label, currentValue, priorValue]) => <tr key={label} className="border-b last:border-0"><td className="py-3 font-medium">{label}</td><td className="py-3 text-center tabular-nums" dir="ltr">{money.format(currentValue)} ر.س</td><td className="py-3 text-center tabular-nums" dir="ltr">{money.format(priorValue)} ر.س</td></tr>)}</tbody></table></div></CardContent>
+    </Card>
+
     <Card>
-      <CardHeader className="flex-row items-center justify-between"><div><CardTitle className="text-lg">أرصدة الإقفال والمعلومات المكملة</CardTitle><p className="mt-1 text-sm text-muted-foreground">اترك الحقل فارغًا عندما يذكر الشرح أن EasyTAX سيعتمده تلقائيًا.</p></div><Button variant="outline" onClick={() => { setShowInputs((value) => !value) }}>{showInputs ? "إخفاء" : "عرض"}</Button></CardHeader>
+      <CardHeader className="flex-row items-center justify-between"><div><CardTitle className="text-lg">أرصدة الإقفال والمعلومات المكملة</CardTitle><p className="mt-1 text-sm text-muted-foreground">هذه الحقول فقط تحتاج إلى تأكيد المنشأة لأنها غير موجودة في الفواتير والمصروفات المسجلة.</p></div><Button variant="outline" onClick={() => { setShowInputs((value) => !value) }}>{showInputs ? "إخفاء" : "عرض"}</Button></CardHeader>
       {showInputs && <CardContent className="space-y-7">{(["assets", "liabilities", "equity", "income"] as const).map((group) => <section key={group}><h3 className="mb-3 border-b pb-2 font-semibold">{groupLabels[group]}</h3><div className="space-y-3">{report.inputDefinitions.filter((definition) => definition.group === group).map((definition) => <div key={definition.key} className="grid items-end gap-3 rounded-lg border p-3 md:grid-cols-[1fr_170px_170px]">
         <div><Label>{definition.label}</Label><p className="mt-1 text-xs text-muted-foreground">{definition.description}</p></div>
         <div><Label className="text-xs">{year}</Label><Input type="number" step="0.01" dir="ltr" value={draft[definition.key].current} onChange={(event) => { setDraft({ ...draft, [definition.key]: { ...draft[definition.key], current: event.target.value } }) }} /></div>
