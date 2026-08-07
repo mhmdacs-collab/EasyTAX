@@ -145,13 +145,19 @@ async function buildReport(orgId: string, fiscalYear: number) {
   const startMonth = Number(organization.fiscal_year_start_month || 1)
   const currentRange = fiscalYearRange(fiscalYear, startMonth)
   const priorRange = fiscalYearRange(fiscalYear - 1, startMonth)
-  const [current, prior, inputRows] = await Promise.all([
+  const [current, prior, inputRows, priorSnapshots] = await Promise.all([
     loadSources(orgId, currentRange.startsOn, currentRange.endsOn),
     loadSources(orgId, priorRange.startsOn, priorRange.endsOn),
     sql`SELECT fsi.input_key,fsi.current_amount,fsi.prior_amount,fsi.note
         FROM financial_statement_inputs fsi
         JOIN financial_statement_periods fsp ON fsp.id=fsi.period_id
         WHERE fsi.organization_id=${orgId} AND fsp.organization_id=${orgId} AND fsp.fiscal_year=${fiscalYear}`,
+    sql`SELECT fss.report
+        FROM financial_statement_snapshots fss
+        JOIN financial_statement_periods fsp ON fsp.id=fss.period_id
+        WHERE fss.organization_id=${orgId} AND fsp.organization_id=${orgId} AND fsp.fiscal_year=${fiscalYear - 1}
+        ORDER BY fss.version DESC
+        LIMIT 1`,
   ])
   const inputs: Partial<Record<FinancialInputKey, FinancialInputValue>> = {}
   for (const row of inputRows) {
@@ -162,6 +168,13 @@ async function buildReport(orgId: string, fiscalYear: number) {
       prior: row.prior_amount === null ? null : Number(row.prior_amount),
       ...(row.note ? { note: String(row.note) } : {}),
     }
+  }
+  const priorSnapshot = priorSnapshots[0]?.report as { inputs?: Partial<Record<FinancialInputKey, FinancialInputValue>> } | undefined
+  for (const key of financialInputKeys) {
+    if (inputs[key]?.prior !== null && inputs[key]?.prior !== undefined) continue
+    const previousCurrent = priorSnapshot?.inputs?.[key]?.current
+    if (previousCurrent === null || previousCurrent === undefined) continue
+    inputs[key] = { ...inputs[key], current: inputs[key]?.current ?? null, prior: Number(previousCurrent) }
   }
   return {
     report: buildFinancialStatements({
