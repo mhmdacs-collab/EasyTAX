@@ -12,6 +12,10 @@ const categories = ["work_costs", "payroll", "rent_utilities", "vehicles_transpo
 const financialClasses = ["direct_cost", "operating_expense", "employee_expense", "fixed_asset", "prepayment", "other_expense"] as const
 const paymentMethods = ["cash", "bank_transfer", "card", "sadad"] as const
 const ibanPattern = /^SA\d{22}$/
+const ibanSchema = z.preprocess(
+  (value) => typeof value === "string" ? value.replace(/\s+/g, "").toUpperCase() : value,
+  z.string().regex(ibanPattern, "رقم الآيبان السعودي يجب أن يبدأ بـ SA ويتكون من 24 خانة"),
+)
 
 async function organizationId(headers: Headers) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -31,7 +35,7 @@ const expenseSchema = z.object({
   paid_amount: z.coerce.number().min(0),
   payment_method: z.enum(paymentMethods).optional(),
   supplier_name: z.string().trim().max(200).optional(),
-  beneficiary_iban: z.string().trim().toUpperCase().regex(ibanPattern, "رقم الآيبان السعودي يجب أن يبدأ بـ SA ويتكون من 24 خانة").optional().or(z.literal("")),
+  beneficiary_iban: z.union([ibanSchema, z.literal(""), z.undefined()]),
   reference_number: z.string().trim().max(100).optional(),
   project_reference: z.string().trim().max(100).optional(),
   notes: z.string().trim().max(1000).optional(),
@@ -66,7 +70,10 @@ expensesRouter.get("/", async (c) => {
   return c.json({ expenses, summary: summary[0], period: { year, month, starts_on: start, ends_on: end } })
 })
 
-expensesRouter.post("/", zValidator("json", expenseSchema), async (c) => {
+expensesRouter.post("/", zValidator("json", expenseSchema, (result, c) => {
+  if (!result.success) return c.json({ error: result.error.issues[0]?.message ?? "راجع بيانات المصروف" }, 400)
+  return undefined
+}), async (c) => {
   const orgId = await organizationId(c.req.raw.headers)
   if (!orgId) return c.json({ error: "غير مصرح" }, 401)
   const input = c.req.valid("json")
@@ -95,14 +102,17 @@ const paymentSchema = z.object({
   payment_date: z.iso.date(),
   reference_number: z.string().trim().max(100).optional(),
   beneficiary_name: z.string().trim().min(1).max(200),
-  beneficiary_iban: z.string().trim().toUpperCase().regex(ibanPattern, "رقم الآيبان السعودي يجب أن يبدأ بـ SA ويتكون من 24 خانة").optional().or(z.literal("")),
+  beneficiary_iban: z.union([ibanSchema, z.literal(""), z.undefined()]),
   notes: z.string().trim().max(500).optional(),
 }).superRefine((value, ctx) => {
   if (value.payment_method === "bank_transfer" && !value.beneficiary_iban) ctx.addIssue({ code: "custom", path: ["beneficiary_iban"], message: "رقم آيبان المستفيد مطلوب للتحويل البنكي" })
   if (value.payment_method === "sadad" && !value.reference_number) ctx.addIssue({ code: "custom", path: ["reference_number"], message: "رقم سداد أو رقم الفاتورة مطلوب" })
 })
 
-expensesRouter.post("/:id/payments", zValidator("json", paymentSchema), async (c) => {
+expensesRouter.post("/:id/payments", zValidator("json", paymentSchema, (result, c) => {
+  if (!result.success) return c.json({ error: result.error.issues[0]?.message ?? "راجع بيانات السداد" }, 400)
+  return undefined
+}), async (c) => {
   const orgId = await organizationId(c.req.raw.headers)
   if (!orgId) return c.json({ error: "غير مصرح" }, 401)
   const input = c.req.valid("json")
