@@ -46,7 +46,6 @@ const expenseSchema = z.object({
   if (value.payment_status !== "unpaid" && !value.payment_method) ctx.addIssue({ code: "custom", path: ["payment_method"], message: "اختر طريقة الدفع" })
   if (value.payment_status !== "unpaid" && !value.supplier_name) ctx.addIssue({ code: "custom", path: ["supplier_name"], message: "اسم المستفيد مطلوب عند تسجيل دفعة" })
   if (value.payment_status === "partially_paid" && (value.paid_amount <= 0 || value.paid_amount >= value.amount)) ctx.addIssue({ code: "custom", path: ["paid_amount"], message: "أدخل دفعة أقل من إجمالي المصروف" })
-  if (value.payment_method === "bank_transfer" && !value.beneficiary_iban) ctx.addIssue({ code: "custom", path: ["beneficiary_iban"], message: "رقم آيبان المستفيد مطلوب للتحويل البنكي" })
   if (value.payment_method === "sadad" && !value.reference_number) ctx.addIssue({ code: "custom", path: ["reference_number"], message: "رقم سداد أو رقم الفاتورة مطلوب" })
 })
 
@@ -105,7 +104,6 @@ const paymentSchema = z.object({
   beneficiary_iban: z.union([ibanSchema, z.literal(""), z.undefined()]),
   notes: z.string().trim().max(500).optional(),
 }).superRefine((value, ctx) => {
-  if (value.payment_method === "bank_transfer" && !value.beneficiary_iban) ctx.addIssue({ code: "custom", path: ["beneficiary_iban"], message: "رقم آيبان المستفيد مطلوب للتحويل البنكي" })
   if (value.payment_method === "sadad" && !value.reference_number) ctx.addIssue({ code: "custom", path: ["reference_number"], message: "رقم سداد أو رقم الفاتورة مطلوب" })
 })
 

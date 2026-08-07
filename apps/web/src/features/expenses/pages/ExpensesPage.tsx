@@ -442,9 +442,8 @@ function ExpenseDialog({
               }}
             />
           </Field>
-          <Field label={`آيبان المستفيد${paymentMethod === "bank_transfer" && status !== "unpaid" ? " *" : " (اختياري)"}`}>
+          <Field label="آيبان المستفيد (اختياري)">
             <Input
-              required={paymentMethod === "bank_transfer" && status !== "unpaid"}
               dir="ltr"
               value={beneficiaryIban}
               onChange={(e) => {
@@ -603,10 +602,9 @@ function PaymentDialog({
         <Field label="طريقة الدفع" required>
           <PaymentMethodSelect value={method} onChange={setMethod} />
         </Field>
-        <Field label={`آيبان المستفيد${method === "bank_transfer" ? " *" : " (محفوظ للسداد القادم)"}`}>
+        <Field label="آيبان المستفيد (اختياري ومحفوظ للسداد القادم)">
           <div className="flex gap-2">
             <Input
-              required={method === "bank_transfer"}
               dir="ltr"
               value={iban}
               onChange={(event) => {
