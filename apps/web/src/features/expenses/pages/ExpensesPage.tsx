@@ -305,10 +305,7 @@ function ExpenseDialog({
         paid_amount: numericPaid,
         payment_method: status === "unpaid" ? undefined : paymentMethod,
         supplier_name: supplier,
-        beneficiary_iban:
-          paymentMethod === "bank_transfer" && status !== "unpaid"
-            ? normalizeIban(beneficiaryIban)
-            : undefined,
+        beneficiary_iban: beneficiaryIban.trim() ? normalizeIban(beneficiaryIban) : undefined,
         reference_number: reference,
         project_reference: "",
         notes,
@@ -445,19 +442,18 @@ function ExpenseDialog({
               }}
             />
           </Field>
-          {status !== "unpaid" && paymentMethod === "bank_transfer" ? (
-            <Field label="آيبان المستفيد" required>
-              <Input
-                required
-                dir="ltr"
-                value={beneficiaryIban}
-                onChange={(e) => {
-                  setBeneficiaryIban(e.target.value);
-                }}
-                placeholder="SA00 0000 0000 0000 0000 0000"
-              />
-            </Field>
-          ) : null}
+          <Field label={`آيبان المستفيد${paymentMethod === "bank_transfer" && status !== "unpaid" ? " *" : " (اختياري)"}`}>
+            <Input
+              required={paymentMethod === "bank_transfer" && status !== "unpaid"}
+              dir="ltr"
+              value={beneficiaryIban}
+              onChange={(e) => {
+                setBeneficiaryIban(e.target.value);
+              }}
+              placeholder="SA00 0000 0000 0000 0000 0000"
+            />
+            <p className="text-xs text-muted-foreground">يُحفظ مع بيانات المستفيد ويظهر تلقائيًا عند أي سداد لاحق.</p>
+          </Field>
           <Field
             label={
               paymentMethod === "sadad" && status !== "unpaid"
@@ -522,7 +518,7 @@ function PaymentDialog({
         payment_method: method,
         payment_date: date,
         beneficiary_name: beneficiary,
-        beneficiary_iban: method === "bank_transfer" ? normalizeIban(iban) : undefined,
+        beneficiary_iban: iban.trim() ? normalizeIban(iban) : undefined,
         reference_number: reference,
       });
       toast({
@@ -607,10 +603,10 @@ function PaymentDialog({
         <Field label="طريقة الدفع" required>
           <PaymentMethodSelect value={method} onChange={setMethod} />
         </Field>
-        {method === "bank_transfer" ? (
-          <Field label="آيبان المستفيد" required>
+        <Field label={`آيبان المستفيد${method === "bank_transfer" ? " *" : " (محفوظ للسداد القادم)"}`}>
+          <div className="flex gap-2">
             <Input
-              required
+              required={method === "bank_transfer"}
               dir="ltr"
               value={iban}
               onChange={(event) => {
@@ -618,8 +614,9 @@ function PaymentDialog({
               }}
               placeholder="SA00 0000 0000 0000 0000 0000"
             />
-          </Field>
-        ) : null}
+            <Button type="button" variant="outline" disabled={!iban.trim()} onClick={() => { void navigator.clipboard.writeText(normalizeIban(iban)); toast({ title:"تم نسخ الآيبان", variant:"success" }) }}>نسخ</Button>
+          </div>
+        </Field>
         <Field label="تاريخ الدفع" required>
           <Input
             required
