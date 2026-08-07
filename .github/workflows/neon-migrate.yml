@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   migrate:
-    name: Apply migration 015
+    name: Apply migration 016
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,17 +47,23 @@ jobs:
           echo "::add-mask::${database_url}"
           echo "DATABASE_URL=${database_url}" >> "${GITHUB_ENV}"
 
-      - name: Apply accounting controls migration
-        run: psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f apps/api/migrations/015_accounting_controls.sql
+      - name: Apply hidden accounting engine migration
+        run: psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f apps/api/migrations/016_hidden_accounting_engine.sql
 
-      - name: Verify accounting controls schema
+      - name: Verify hidden accounting engine schema
         run: |
           psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           BEGIN
-            IF to_regclass('public.accounting_period_locks') IS NULL
-              OR to_regclass('public.financial_movements') IS NULL THEN
-              RAISE EXCEPTION 'Accounting controls migration verification failed';
+            IF to_regclass('public.chart_of_accounts') IS NULL
+              OR to_regclass('public.journal_entries') IS NULL
+              OR to_regclass('public.journal_lines') IS NULL THEN
+              RAISE EXCEPTION 'Hidden accounting engine migration verification failed';
             END IF;
+            IF EXISTS (
+              SELECT 1 FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id
+              WHERE je.status IN ('posted','reversed') GROUP BY je.id
+              HAVING ABS(SUM(jl.debit)-SUM(jl.credit)) > 0.005
+            ) THEN RAISE EXCEPTION 'Unbalanced journal entries found'; END IF;
           END $$;
           SQL

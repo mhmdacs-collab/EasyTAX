@@ -3,6 +3,9 @@ import { z } from "zod"
 import { zValidator } from "@hono/zod-validator"
 import { auth } from "../lib/auth"
 import { sql, withTransaction } from "../lib/db"
+import { activePeriodLock, lockedPeriodMessage } from "../lib/periodLocks"
+import { postJournalEntry, reverseSourceJournalEntries } from "../lib/accountingEngine"
+import { documentJournal } from "../lib/accountingRules"
 
 const syncRouter = new Hono()
 
@@ -153,6 +156,11 @@ syncRouter.post("/", zValidator("json", syncPayload), async (c) => {
   for (const document of body.documents) {
     try {
       await withTransaction(async (client) => {
+        const existing=await client.query("SELECT status,issue_date,type FROM documents WHERE id=$1 AND organization_id=$2 FOR UPDATE",[document.id,body.organization_id])
+        if(document.status!=="draft"){
+          const lock=await activePeriodLock(client,body.organization_id,document.date.slice(0,10))
+          if(lock)throw new Error(lockedPeriodMessage(lock))
+        }
         const result = await client.query(
           `INSERT INTO documents (
              id, organization_id, customer_id, type, number, issue_date, due_date,
@@ -216,6 +224,9 @@ syncRouter.post("/", zValidator("json", syncPayload), async (c) => {
             ],
           )
         }
+        const normalizedType=documentType(document.type),normalizedStatus=documentStatus(document.status)
+        if(normalizedType==="invoice"&&normalizedStatus==="issued")await postJournalEntry(client,{organizationId:body.organization_id,entryDate:document.date.slice(0,10),sourceType:"document",sourceId:document.id,idempotencyKey:`document:${document.id}:issued`,description:`فاتورة ضريبية رقم ${document.number}`,customerId:document.customer_id??null,lines:documentJournal({type:"invoice",total:document.total,taxTotal:document.vat_amount,retentionTotal:document.retention_amount})})
+        if(normalizedType==="invoice"&&normalizedStatus==="cancelled"&&existing.rows[0]?.status==="issued")await reverseSourceJournalEntries(client,{organizationId:body.organization_id,sourceType:"document",sourceId:document.id,reversalDate:document.date.slice(0,10),reason:"إلغاء مستند متزامن"})
       })
       synced.document_ids.push(document.id)
     } catch (error) {

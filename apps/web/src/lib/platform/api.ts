@@ -205,6 +205,9 @@ export type PeriodLock = {id:string;lock_type:"tax_return"|"financial_year";star
 export const listPeriodLocks = () => request<{locks:PeriodLock[]}>('/accounting/period-locks')
 export const unlockPeriod = (id:string,reason:string) => request<{lock:PeriodLock}>(`/accounting/period-locks/${id}/unlock`,{method:"POST",body:JSON.stringify({reason})})
 
+export type LedgerHealth = {debit:number;credit:number;difference:number;missingSources:Record<string,number>;reconciliation:Record<string,number>;isHealthy:boolean}
+export const fetchLedgerHealth = () => request<{health:LedgerHealth}>('/accounting/ledger-health')
+
 export type FinancialMovementType = "opening_cash"|"capital_contribution"|"owner_withdrawal"|"loan_received"|"loan_repayment"
 export type FinancialMovement = {id:string;movement_date:string;movement_type:FinancialMovementType;amount:number|string;loan_term?:"current"|"non_current";reference_number?:string;notes?:string;status:"recorded"|"reversed";reversal_reason?:string}
 export const listFinancialMovements = (year:number) => request<{movements:FinancialMovement[];summary:Record<string,number|string>;period:{year:number;starts_on:string;ends_on:string}}>(`/accounting/movements?year=${year}`)

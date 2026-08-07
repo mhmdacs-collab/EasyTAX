@@ -4,6 +4,7 @@ import { zValidator } from "@hono/zod-validator"
 import { auth } from "../lib/auth"
 import { sql, withTransaction } from "../lib/db"
 import { activePeriodLock, lockedPeriodMessage } from "../lib/periodLocks"
+import { ledgerHealth, postYearEndAdjustments, postYearEndClosingEntry } from "../lib/accountingEngine"
 import {
   buildFinancialStatements,
   financialInputKeys,
@@ -306,6 +307,8 @@ financialStatementsRouter.post("/:year/snapshots", async (c) => {
   if ("error" in result) return c.json({ error: result.error === "NOT_ENABLED" ? "فعّل القوائم المالية من الإعدادات أولًا" : "تعذر إعداد القوائم" }, result.error === "NOT_ENABLED" ? 403 : 404)
   if (!result.report.validation.isExportable) return c.json({ error: "عالج أخطاء التوازن والتدفق النقدي قبل إنشاء النسخة الرسمية", validation: result.report.validation }, 422)
   const snapshot = await withTransaction(async (client) => {
+    const health=await ledgerHealth(client,orgId)
+    if(!health.isHealthy)return {error:"LEDGER_UNHEALTHY" as const,health}
     const range = result.report.period
     const periodResult = await client.query(`
       INSERT INTO financial_statement_periods(organization_id,fiscal_year,starts_on,ends_on,status)
@@ -323,6 +326,7 @@ financialStatementsRouter.post("/:year/snapshots", async (c) => {
     await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,snapshot) VALUES($1,'financial_statement',$2,'created',$3)", [orgId, inserted.rows[0].id, JSON.stringify({ fiscal_year: year, version })])
     return inserted.rows[0]
   })
+  if("error" in snapshot)return c.json({error:"لا يمكن إنشاء نسخة رسمية قبل اكتمال مطابقة القيود المحاسبية",health:snapshot.health},409)
   return c.json({ snapshot }, 201)
 })
 
@@ -339,6 +343,8 @@ financialStatementsRouter.post("/:year/close", zValidator("json", closeSchema), 
   if (!built.report.validation.isExportable) return c.json({ error: "لا يمكن إقفال السنة قبل معالجة أخطاء التوازن والتدفق النقدي", validation: built.report.validation }, 422)
   const result = await withTransaction(async (client) => {
     const range = built.report.period
+    const health=await ledgerHealth(client,orgId)
+    if(!health.isHealthy)return {error:"LEDGER_UNHEALTHY" as const,health}
     const existing = await client.query("SELECT id FROM accounting_period_locks WHERE organization_id=$1 AND lock_type='financial_year' AND starts_on=$2 AND ends_on=$3 AND status='locked' FOR UPDATE", [orgId, range.startsOn, range.endsOn])
     if (existing.rows[0]) return { error: "ALREADY_CLOSED" as const }
     const period = await client.query(`INSERT INTO financial_statement_periods(organization_id,fiscal_year,starts_on,ends_on,status)
@@ -348,9 +354,16 @@ financialStatementsRouter.post("/:year/close", zValidator("json", closeSchema), 
       VALUES($1,$2,$3,$4,$5) RETURNING id,version,generated_at`, [orgId, period.rows[0].id, Number(versionResult.rows[0].version), JSON.stringify(built.report), JSON.stringify(built.report.validation)])
     const lock = await client.query(`INSERT INTO accounting_period_locks(organization_id,lock_type,starts_on,ends_on,source_entity_id,reason)
       VALUES($1,'financial_year',$2,$3,$4,$5) RETURNING *`, [orgId, range.startsOn, range.endsOn, period.rows[0].id, body.reason])
+    const current=(key:FinancialInputKey)=>Number(built.report.inputs[key]?.current??0)
+    await postYearEndAdjustments(client,{organizationId:orgId,periodId:String(period.rows[0].id),endsOn:range.endsOn,fiscalYear:year,values:{
+      purchaseFixedAssets:current("purchase_fixed_asset_reclassification"),purchasePrepayments:current("purchase_prepayment_reclassification"),
+      depreciation:current("depreciation_expense"),zakatExpense:current("zakat_expense"),incomeTaxExpense:current("income_tax_expense"),
+    }})
+    await postYearEndClosingEntry(client,{organizationId:orgId,periodId:String(period.rows[0].id),startsOn:range.startsOn,endsOn:range.endsOn,fiscalYear:year})
     await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,reason,snapshot) VALUES($1,'financial_statement',$2,'closed',$3,$4)", [orgId, snapshot.rows[0].id, body.reason, JSON.stringify({ fiscal_year: year, version: snapshot.rows[0].version, lock_id: lock.rows[0].id })])
     return { snapshot: snapshot.rows[0], lock: lock.rows[0] }
   })
+  if ("error" in result && result.error==="LEDGER_UNHEALTHY") return c.json({error:"لا يمكن إقفال السنة قبل اكتمال مطابقة القيود المحاسبية",health:result.health},409)
   if ("error" in result) return c.json({ error: "السنة المالية مقفلة مسبقًا" }, 409)
   return c.json(result, 201)
 })
