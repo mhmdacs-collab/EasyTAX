@@ -5,6 +5,7 @@ import { zValidator } from "@hono/zod-validator"
 import { auth } from "../lib/auth"
 import { sql, withTransaction } from "../lib/db"
 import { applyExpensePayment, reverseRecordedPayment } from "../lib/expensePayments"
+import { activePeriodLock, lockedPeriodMessage } from "../lib/periodLocks"
 
 export const purchasesRouter = new Hono()
 const paymentMethods = ["cash", "bank_transfer", "card", "sadad"] as const
@@ -79,6 +80,8 @@ purchasesRouter.post("/", zValidator("json", purchaseSchema), async (c) => {
   if (duplicate && !body.duplicate_override) return c.json({ error: "DUPLICATE_WARNING", duplicate }, 409)
 
   const purchase = await withTransaction(async (client) => {
+    const periodLock = await activePeriodLock(client, orgId, invoiceDate)
+    if (periodLock) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(periodLock) }
     await client.query("INSERT INTO purchase_invoice_sequences(organization_id,next_number) VALUES($1,1) ON CONFLICT(organization_id) DO NOTHING", [orgId])
     const sequence = await client.query("SELECT next_number FROM purchase_invoice_sequences WHERE organization_id=$1 FOR UPDATE", [orgId])
     const nextNumber = Number(sequence.rows[0].next_number)
@@ -97,6 +100,7 @@ purchasesRouter.post("/", zValidator("json", purchaseSchema), async (c) => {
     await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,snapshot) VALUES($1,'purchase_invoice',$2,'created',$3)", [orgId, result.rows[0].id, JSON.stringify(result.rows[0])])
     return result.rows[0]
   })
+  if ("error" in purchase) return c.json({ error: purchase.message }, 409)
   return c.json({ purchase }, 201)
 })
 
@@ -115,6 +119,8 @@ purchasesRouter.patch("/:id/status", zValidator("json", statusSchema), async (c)
     const current = await client.query("SELECT * FROM purchase_invoices WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL FOR UPDATE", [c.req.param("id"), orgId])
     if (!current.rows[0]) return null
     if (current.rows[0].status === "cancelled") return { error: "CANCELLED_LOCKED" as const }
+    const periodLock = await activePeriodLock(client, orgId, String(current.rows[0].invoice_date).slice(0, 10))
+    if (periodLock) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(periodLock) }
     if (body.status === "cancelled" && Number(current.rows[0].paid_amount) > 0) return { error: "ACTIVE_PAYMENTS" as const }
     const updated = await client.query(`UPDATE purchase_invoices SET status=$1,include_in_tax_return=$2,
       accounting_status=CASE WHEN $1='cancelled' THEN 'cancelled' ELSE accounting_status END,
@@ -125,7 +131,7 @@ purchasesRouter.patch("/:id/status", zValidator("json", statusSchema), async (c)
     return updated.rows[0]
   })
   if (!result) return c.json({ error: "فاتورة المشتريات غير موجودة" }, 404)
-  if ("error" in result) return c.json({ error: result.error === "ACTIVE_PAYMENTS" ? "ألغِ دفعات فاتورة المشتريات أولًا قبل إلغائها" : "الفاتورة الملغاة مغلقة ولا يمكن إعادتها إلى الإقرار" }, 409)
+  if ("error" in result) return c.json({ error: result.error === "PERIOD_LOCKED" ? result.message : result.error === "ACTIVE_PAYMENTS" ? "ألغِ دفعات فاتورة المشتريات أولًا قبل إلغائها" : "الفاتورة الملغاة مغلقة ولا يمكن إعادتها إلى الإقرار" }, 409)
   return c.json({ purchase: result })
 })
 
@@ -156,6 +162,8 @@ purchasesRouter.post("/:id/payments", zValidator("json", paymentSchema, (result,
     const purchase = current.rows[0]
     if (!purchase) return { error: "NOT_FOUND" as const }
     if (purchase.accounting_status === "cancelled") return { error: "CANCELLED" as const }
+    const periodLock = await activePeriodLock(client, orgId, input.payment_date)
+    if (periodLock) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(periodLock) }
     const applied = applyExpensePayment(Number(purchase.total), Number(purchase.paid_amount), input.amount)
     if (!applied.ok) return { error: applied.reason, remaining: applied.remaining }
     const beneficiaryName = input.beneficiary_name || String(purchase.supplier_name || "المورد")
@@ -175,6 +183,7 @@ purchasesRouter.post("/:id/payments", zValidator("json", paymentSchema, (result,
   if ("error" in result) {
     if (result.error === "NOT_FOUND") return c.json({ error: "فاتورة المشتريات غير موجودة" }, 404)
     if (result.error === "CANCELLED") return c.json({ error: "لا يمكن سداد فاتورة ملغاة" }, 409)
+    if (result.error === "PERIOD_LOCKED") return c.json({ error: result.message }, 409)
     if (result.error === "ALREADY_PAID") return c.json({ error: "الفاتورة مدفوعة بالكامل" }, 409)
     if (result.error === "INVALID_AMOUNT") return c.json({ error: `المبلغ يتجاوز المتبقي وهو ${result.remaining.toFixed(2)} ر.س` }, 400)
     return c.json({ error: "تعذر تسجيل الدفعة" }, 400)
@@ -196,6 +205,8 @@ purchasesRouter.post("/:id/payments/:paymentId/cancel", zValidator("json", cance
     const payment = payments.rows[0]
     if (!payment) return { error: "PAYMENT_NOT_FOUND" as const }
     if (payment.status === "cancelled") return { error: "ALREADY_CANCELLED" as const }
+    const periodLock = await activePeriodLock(client, orgId, String(payment.payment_date).slice(0, 10))
+    if (periodLock) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(periodLock) }
     const reversal = reverseRecordedPayment(Number(purchase.total), Number(purchase.paid_amount), Number(payment.amount))
     if (!reversal.ok) return { error: "INVALID_REVERSAL" as const }
     const cancelled = await client.query("UPDATE purchase_invoice_payments SET status='cancelled',cancelled_at=NOW(),cancellation_reason=$1,updated_at=NOW() WHERE id=$2 RETURNING *", [reason, payment.id])
@@ -204,6 +215,7 @@ purchasesRouter.post("/:id/payments/:paymentId/cancel", zValidator("json", cance
     return { purchase: updated.rows[0], payment: cancelled.rows[0] }
   })
   if ("error" in result) {
+    if (result.error === "PERIOD_LOCKED") return c.json({ error: result.message }, 409)
     const messages = { NOT_FOUND: "فاتورة المشتريات غير موجودة", PAYMENT_NOT_FOUND: "دفعة المشتريات غير موجودة", ALREADY_CANCELLED: "الدفعة ملغاة مسبقًا", INVALID_REVERSAL: "تعذر عكس الدفعة بسبب عدم تطابق رصيدها" } as const
     return c.json({ error: messages[result.error] }, result.error === "NOT_FOUND" || result.error === "PAYMENT_NOT_FOUND" ? 404 : 409)
   }

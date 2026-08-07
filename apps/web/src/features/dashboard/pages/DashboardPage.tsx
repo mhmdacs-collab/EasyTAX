@@ -49,12 +49,13 @@ export default function DashboardPage() {
     const now = new Date()
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
     const issuedStatuses: CentralDocument["status"][] = ["issued", "paid", "partially_paid"]
-    const issued = documents.filter((document) => document.type === "invoice" && issuedStatuses.includes(document.status))
+    const issued = documents.filter((document) => ["invoice","credit_note","debit_note"].includes(document.type) && issuedStatuses.includes(document.status))
     const thisMonth = issued.filter((document) => new Date(document.issue_date).getTime() >= monthStart)
+    const signedTotal=(document:CentralDocument)=>(document.type==="credit_note"?-1:1)*Number(document.total)
     return {
-      totalRevenue: issued.reduce((sum, document) => sum + Number(document.total), 0),
-      monthRevenue: thisMonth.reduce((sum, document) => sum + Number(document.total), 0),
-      issuedCount: issued.length,
+      totalRevenue: issued.reduce((sum, document) => sum + signedTotal(document), 0),
+      monthRevenue: thisMonth.reduce((sum, document) => sum + signedTotal(document), 0),
+      issuedCount: issued.filter((document)=>document.type==="invoice").length,
       draftCount: documents.filter((document) => document.status === "draft").length,
     }
   }, [documents])
@@ -78,14 +79,14 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="إجمالي الفواتير الصادرة منذ البداية" icon={<TrendingUp className="size-4 text-green-500" />} loading={loading} value={formatCurrency(stats?.totalRevenue ?? 0)} detail={`${formatCurrency(stats?.monthRevenue ?? 0)} فواتير هذا الشهر`} />
+        <StatCard title="صافي المبيعات الصادرة منذ البداية" icon={<TrendingUp className="size-4 text-green-500" />} loading={loading} value={formatCurrency(stats?.totalRevenue ?? 0)} detail={`${formatCurrency(stats?.monthRevenue ?? 0)} صافي هذا الشهر`} />
         <StatCard title="الفواتير الصادرة" icon={<FileText className="size-4 text-primary" />} loading={loading} value={String(stats?.issuedCount ?? 0)} detail={`${stats?.draftCount ?? 0} مسودة`} />
         <StatCard title="العملاء" icon={<Users className="size-4 text-blue-500" />} loading={loading} value={String(customerCount ?? 0)} detail="عميل مسجل" />
         <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">الاشتراك</CardTitle><Clock className="size-4 text-muted-foreground" /></CardHeader><CardContent>{!subscription ? <><Skeleton className="h-7 w-20" /><Skeleton className="mt-2 h-3 w-28" /></> : <><Badge variant={subscription.effective_status === "active" ? "success" : "destructive"} className="text-sm">{subscriptionLabel(subscription.effective_status)}</Badge><p className="mt-2 text-xs text-muted-foreground">{subscription.expires_at ? `ينتهي ${formatDate(subscription.expires_at)}` : "لا يوجد تاريخ انتهاء"}</p></>}</CardContent></Card>
       </div>
 
       <section>
-        <div className="mb-3 flex items-center justify-between"><h2 className="font-semibold">آخر الفواتير</h2><Link to="/documents" className="flex items-center gap-1 text-sm text-primary hover:underline">عرض الكل<ArrowLeft className="size-3.5" /></Link></div>
+        <div className="mb-3 flex items-center justify-between"><h2 className="font-semibold">آخر المستندات</h2><Link to="/documents" className="flex items-center gap-1 text-sm text-primary hover:underline">عرض الكل<ArrowLeft className="size-3.5" /></Link></div>
         {loading ? <LoadingRows /> : recentDocuments?.length ? (
           <div className="divide-y rounded-lg border">{recentDocuments.map((document) => (
             <Link key={document.id} to="/documents/$id" params={{ id: document.id }} className="grid grid-cols-[1fr_auto] gap-2 px-4 py-3 transition-colors hover:bg-muted/50 sm:grid-cols-[7rem_1fr_7rem_7rem_auto] sm:items-center">

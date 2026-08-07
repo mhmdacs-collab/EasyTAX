@@ -7,11 +7,13 @@ import {
   ChevronRight,
   Download,
   FileText,
+  LockKeyhole,
   RefreshCw,
   Save,
 } from "lucide-react"
 import {
   createFinancialStatementSnapshot,
+  closeFinancialYear,
   fetchFinancialStatements,
   saveFinancialStatementInputs,
   type FinancialInputKey,
@@ -74,6 +76,7 @@ export default function FinancialStatementsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [exporting, setExporting] = useState<"word" | "pdf">()
+  const [closing,setClosing]=useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [purchaseDecision, setPurchaseDecision] = useState<PurchaseDecision>()
   const [priorDecision, setPriorDecision] = useState<PriorDecision>()
@@ -219,6 +222,15 @@ export default function FinancialStatementsPage() {
     }
   }
 
+  const closeYear=async()=>{
+    if(!report?.validation.isExportable)return
+    if(!window.confirm(`سيتم حفظ نسخة رسمية وقفل جميع الحركات من ${report.period.startsOn} إلى ${report.period.endsOn}. هل تريد اعتماد السنة؟`))return
+    setClosing(true)
+    try{await closeFinancialYear(year);toast({title:"تم اعتماد القوائم وقفل السنة",description:"أي تعديل لاحق يتطلب إعادة فتح موثقة من صفحة الضبط المالي.",variant:"success"})}
+    catch(error){toast({title:"تعذر إقفال السنة",description:error instanceof Error?error.message:"حاول مرة أخرى",variant:"error"})}
+    finally{setClosing(false)}
+  }
+
   if (loading) return <div className="p-6 text-muted-foreground" dir="rtl">جاري إعداد القوائم المالية...</div>
   if (!report || !draft) return <div className="space-y-3 p-6 text-center" dir="rtl"><p>تعذر تحميل القوائم أو أنها غير مفعلة.</p><Button variant="outline" onClick={() => { void load() }}><RefreshCw />إعادة المحاولة</Button></div>
 
@@ -358,6 +370,7 @@ export default function FinancialStatementsPage() {
         <Button variant="outline" onClick={() => { setShowPreview((value) => !value) }}><FileText />{showPreview ? "إخفاء المعاينة" : "معاينة القوائم"}</Button>
         <Button disabled={!report.validation.isExportable} loading={exporting === "word"} onClick={() => { void exportFile("word") }}><Download />تنزيل Word</Button>
         <Button disabled={!report.validation.isExportable} loading={exporting === "pdf"} onClick={() => { void exportFile("pdf") }}><Download />تنزيل PDF</Button>
+        <Button disabled={!report.validation.isExportable} loading={closing} onClick={()=>{void closeYear()}}><LockKeyhole />اعتماد وقفل السنة</Button>
       </div>
       {!report.validation.isExportable && <p className="text-left text-xs text-red-600">التصدير الرسمي مقفل حتى يتساوى المركز المالي ويتطابق رصيد النقد مع التدفقات.</p>}
       <div className={showPreview ? "overflow-x-auto rounded-xl border" : "pointer-events-none fixed -left-[10000px] top-0 opacity-0"} aria-hidden={!showPreview}><div ref={reportRef}><FinancialStatementReportView report={report} /></div></div>

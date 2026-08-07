@@ -32,7 +32,7 @@ export const createCustomer = (input: CustomerInput) => request<{ customer: Cent
 export const updateCustomer = (id: string, input: CustomerInput) => request<{ customer: CentralCustomer }>(`/customers/${id}`, { method: "PUT", body: JSON.stringify(input) })
 export const deleteCustomer = (id: string) => request<{ ok: true }>(`/customers/${id}`, { method: "DELETE" })
 export type CustomerAccountMovement = {
-  kind:"invoice"|"payment"|"receipt"; source_id:string; number:string; event_date:string
+  kind:"invoice"|"credit_note"|"debit_note"|"payment"|"receipt"; source_id:string; number:string; event_date:string
   invoice_total:number; retention_total:number; received:number; balance:number
   payment_method_name?:string; reference_number?:string
 }
@@ -98,11 +98,13 @@ export const createDocumentDraft = (input: DocumentDraftInput) => request<{ docu
 export const updateDocumentDraft = (id: string, input: DocumentDraftInput) => request<{ document_id: string }>(`/documents/${id}`, { method: "PUT", body: JSON.stringify(input) })
 export const issueDocumentDraft = (id: string) => request<{ document: { id: string; number: string } }>(`/documents/${id}/issue`, { method: "POST" })
 export const cancelDocument = (id:string,reason:string) => request<{document:CentralDocument}>(`/documents/${id}/cancel`,{method:"POST",body:JSON.stringify({reason})})
+export const createDocumentAdjustment = (id:string,input:{type:"credit_note"|"debit_note";issue_date:string;reason:string;taxable_amount:number}) => request<{document:CentralDocument}>(`/documents/${id}/adjustments`,{method:"POST",body:JSON.stringify(input)})
 export type CentralDocument = {
-  id:string; type:"invoice"|"quotation"; number:string; issue_date:string; due_date?:string; status:"draft"|"issued"|"paid"|"partially_paid"|"cancelled"; cancelled_at?:string; cancellation_reason?:string
+  id:string; type:"invoice"|"quotation"|"credit_note"|"debit_note"; number:string; issue_date:string; due_date?:string; status:"draft"|"issued"|"paid"|"partially_paid"|"cancelled"; cancelled_at?:string; cancellation_reason?:string
   prices_include_tax:boolean; subtotal:number|string; discount_total:number|string; tax_total:number|string; retention_total:number|string; total:number|string; notes?:string
-  show_bank_details:boolean; show_stamp:boolean; show_signature:boolean; reference_data:{ payment_method?:string; purchase_order?:string; reference_number?:string; show_totals?:boolean }
+  show_bank_details:boolean; show_stamp:boolean; show_signature:boolean; reference_data:{ payment_method?:string; purchase_order?:string; reference_number?:string; show_totals?:boolean; source_invoice_number?:string }
   customer_snapshot:CentralCustomer; organization_snapshot:Record<string,unknown>; created_at:string; updated_at:string
+  source_document_id?:string; correction_reason?:string
   items?:Array<{id:string;description:string;unit?:string;quantity:number|string;unit_price:number|string;discount:number|string;tax_rate:number|string;retention_rate:number|string;line_subtotal:number|string;line_tax:number|string;line_retention:number|string;line_total:number|string}>
   payments?:Array<{id:string;payment_method_name:string;amount:number|string;is_collected:boolean;paid_at?:string}>
   terms?:string[]
@@ -133,7 +135,7 @@ export const addTaxPurchasePayment = (id:string,input:TaxPurchasePaymentInput) =
 export const cancelTaxPurchasePayment = (id:string,paymentId:string,reason:string) => request<{purchase:TaxPurchase;payment:NonNullable<TaxPurchase["payments"]>[number]}>(`/purchases/${id}/payments/${paymentId}/cancel`,{method:"POST",body:JSON.stringify({reason})})
 
 export type TaxReturnSummary = {
-  period:{year:number;quarter:number;starts_on:string;ends_on:string;deadline:string;status:"open"|"awaiting_review";days_remaining:number}
+  period:{year:number;quarter:number;starts_on:string;ends_on:string;deadline:string;status:"open"|"awaiting_review"|"closed";days_remaining:number;lock_id?:string|null}
   organization:{id:string;business_name:string;vat_number:string}
   sales:{total:number;taxable:number;tax:number;adjustments:number}
   purchases:{total:number;taxable:number;tax:number;adjustments:number}
@@ -142,6 +144,7 @@ export type TaxReturnSummary = {
   notice:string
 }
 export const fetchTaxReturnSummary = (year?:number,quarter?:number) => request<TaxReturnSummary>(`/tax-returns/current${year&&quarter?`?year=${year}&quarter=${quarter}`:""}`)
+export const closeTaxReturn = (year:number,quarter:number,reason?:string) => request<{lock:PeriodLock}>("/tax-returns/close",{method:"POST",body:JSON.stringify({year,quarter,reason:reason||"اعتماد الإقرار الضريبي وقفل الفترة"})})
 
 export type ExpenseCategory = "work_costs" | "payroll" | "rent_utilities" | "vehicles_transport" | "admin_marketing_professional" | "asset_equipment" | "other"
 export type FinancialClass = "direct_cost" | "operating_expense" | "employee_expense" | "fixed_asset" | "prepayment" | "other_expense"
@@ -178,7 +181,8 @@ export type FinancialSourceTotals = {
   revenue:number; invoiceTotal:number; salesTax:number; taxPurchases:number; purchaseTax:number
   directCosts:number; employeeExpenses:number; operatingExpenses:number; otherExpenses:number
   fixedAssetAdditions:number; fixedAssetBalance:number; prepaymentBalance:number; receiptInflows:number
-  standaloneAdvances:number; expensePayments:number; purchasePayments:number; systemCashBalance:number; tradeReceivables:number
+  standaloneAdvances:number; expensePayments:number; purchasePayments:number; openingCash:number; capitalBalance:number
+  ownerWithdrawals:number; currentLoanBalance:number; nonCurrentLoanBalance:number; systemCashBalance:number; tradeReceivables:number
   tradePayables:number; invoiceCount:number; purchaseCount:number; expenseCount:number
 }
 export type FinancialStatementReport = {
@@ -195,3 +199,19 @@ export type FinancialStatementInputPayload = {key:FinancialInputKey;current_amou
 export const fetchFinancialStatements = (year:number) => request<{report:FinancialStatementReport}>(`/financial-statements/${year}`)
 export const saveFinancialStatementInputs = (year:number,inputs:FinancialStatementInputPayload[]) => request<{report:FinancialStatementReport}>(`/financial-statements/${year}/inputs`,{method:"PUT",body:JSON.stringify({inputs})})
 export const createFinancialStatementSnapshot = (year:number) => request<{snapshot:{id:string;version:number;generated_at:string}}>(`/financial-statements/${year}/snapshots`,{method:"POST"})
+export const closeFinancialYear = (year:number,reason?:string) => request<{snapshot:{id:string;version:number;generated_at:string};lock:PeriodLock}>(`/financial-statements/${year}/close`,{method:"POST",body:JSON.stringify({reason:reason||"اعتماد القوائم المالية وقفل السنة"})})
+
+export type PeriodLock = {id:string;lock_type:"tax_return"|"financial_year";starts_on:string;ends_on:string;status:"locked"|"unlocked";reason:string;locked_at:string;unlocked_at?:string;unlock_reason?:string}
+export const listPeriodLocks = () => request<{locks:PeriodLock[]}>('/accounting/period-locks')
+export const unlockPeriod = (id:string,reason:string) => request<{lock:PeriodLock}>(`/accounting/period-locks/${id}/unlock`,{method:"POST",body:JSON.stringify({reason})})
+
+export type FinancialMovementType = "opening_cash"|"capital_contribution"|"owner_withdrawal"|"loan_received"|"loan_repayment"
+export type FinancialMovement = {id:string;movement_date:string;movement_type:FinancialMovementType;amount:number|string;loan_term?:"current"|"non_current";reference_number?:string;notes?:string;status:"recorded"|"reversed";reversal_reason?:string}
+export const listFinancialMovements = (year:number) => request<{movements:FinancialMovement[];summary:Record<string,number|string>;period:{year:number;starts_on:string;ends_on:string}}>(`/accounting/movements?year=${year}`)
+export const createFinancialMovement = (input:{movement_date:string;movement_type:FinancialMovementType;amount:number;loan_term?:"current"|"non_current";reference_number?:string;notes?:string}) => request<{movement:FinancialMovement}>('/accounting/movements',{method:"POST",body:JSON.stringify(input)})
+export const reverseFinancialMovement = (id:string,reason:string) => request<{movement:FinancialMovement}>(`/accounting/movements/${id}/reverse`,{method:"POST",body:JSON.stringify({reason})})
+
+export type SupplierAccountSummary = {supplier_vat_number:string;supplier_name:string;invoice_count:number|string;invoice_total:number|string;paid_total:number|string;outstanding:number|string}
+export type SupplierAccount = {supplier:{name:string;vat_number:string};summary:{invoice_total:number;paid_total:number;outstanding:number};invoices:Array<{id:string;internal_number:string;invoice_number:string;invoice_date:string;supplier_name:string;total:number|string;paid_amount:number|string;payment_status:"unpaid"|"partially_paid"|"paid"}>;payments:Array<{id:string;purchase_invoice_id:string;internal_number:string;payment_date:string;amount:number|string;payment_method:string;reference_number?:string;status:"issued"|"cancelled"}>}
+export const listSupplierAccounts = () => request<{suppliers:SupplierAccountSummary[]}>('/accounting/suppliers')
+export const fetchSupplierAccount = (vat:string) => request<SupplierAccount>(`/accounting/suppliers/${encodeURIComponent(vat)}/account`)

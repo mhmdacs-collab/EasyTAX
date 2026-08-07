@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react"
 import { Link, useParams } from "@tanstack/react-router"
-import { Download, Mail, MessageCircle, Pencil, Printer, Share2, XCircle } from "lucide-react"
-import { cancelDocument, fetchBrandingAssetUrl, fetchDocument, type BrandingAssetKind, type CentralDocument } from "@/lib/platform/api"
+import { CirclePlus, Download, Mail, MessageCircle, Pencil, Printer, Share2, XCircle } from "lucide-react"
+import { cancelDocument, createDocumentAdjustment, fetchBrandingAssetUrl, fetchDocument, type BrandingAssetKind, type CentralDocument } from "@/lib/platform/api"
 import { createInvoicePdf, downloadPdf, sharePdf } from "@/lib/pdf/invoicePdf"
 import { ZatcaQrCode } from "@/lib/zatca/ZatcaQrCode"
 import { Button } from "@/shared/components/ui/button"
 import { Separator } from "@/shared/components/ui/separator"
+import { Input } from "@/shared/components/ui/input"
+import { Label } from "@/shared/components/ui/label"
 import { toast } from "@/shared/hooks/useToast"
 import { formatCurrency, formatDate } from "@/shared/utils"
 
@@ -29,6 +31,9 @@ export function DocumentViewPage() {
   const { id } = useParams({ from: "/app/documents/$id" })
   const [document, setDocument] = useState<CentralDocument>()
   const [creatingPdf, setCreatingPdf] = useState(false)
+  const [showAdjustment,setShowAdjustment]=useState(false)
+  const [adjustment,setAdjustment]=useState({type:"credit_note" as "credit_note"|"debit_note",issue_date:new Date().toISOString().slice(0,10),taxable_amount:"",reason:""})
+  const [savingAdjustment,setSavingAdjustment]=useState(false)
   const [assetUrls, setAssetUrls] = useState<Partial<Record<BrandingAssetKind, string>>>({})
   const printAreaRef = useRef<HTMLElement>(null)
   const cancel=async()=>{const reason=window.prompt("سبب إلغاء المستند");if(!reason?.trim())return;try{const result=await cancelDocument(id,reason.trim());setDocument(result.document);toast({title:"تم إلغاء المستند",variant:"success"})}catch(error){toast({title:"تعذر إلغاء المستند",description:error instanceof Error?error.message:"حاول مرة أخرى",variant:"error"})}}
@@ -43,6 +48,7 @@ export function DocumentViewPage() {
   const seller = document.organization_snapshot as OrganizationSnapshot
   const customer = document.customer_snapshot
   const isQuotation = document.type === "quotation"
+  const documentTitle = document.type === "quotation" ? "عرض سعر" : document.type === "credit_note" ? "إشعار دائن" : document.type === "debit_note" ? "إشعار مدين" : "فاتورة ضريبية"
   const showTotals = !isQuotation || document.reference_data.show_totals !== false
   const hasUnits = document.items?.some((item) => Boolean(item.unit?.trim())) ?? false
   const hasLineDiscounts = document.items?.some((item) => Number(item.discount) > 0) ?? false
@@ -54,8 +60,8 @@ export function DocumentViewPage() {
   const sellerAddress = [seller.street, seller.building_number, seller.district, seller.city, seller.postal_code].filter(Boolean).join("، ")
   const customerAddress = [customer.street, customer.building_number, customer.district, customer.city, customer.postal_code].filter(Boolean).join("، ")
   const organizationName = seller.business_name ?? "المنشأة"
-  const shareText = document.status === "issued" ? `السلام عليكم ورحمة الله وبركاته،\n\nيسر ${organizationName} أن ترسل لكم الفاتورة الضريبية رقم ${document.number} بتاريخ ${formatDate(document.issue_date)}، وبإجمالي ${formatCurrency(Number(document.total))}.\n\nنأمل التكرم بمراجعة الفاتورة المرفقة.\n\nمع خالص التحية،\n${organizationName}${seller.vat_number ? `\nالرقم الضريبي: ${seller.vat_number}` : ""}` : ""
-  const emailUrl = customer.email ? `mailto:${customer.email}?subject=${encodeURIComponent(`فاتورة ضريبية رقم ${document.number}`)}&body=${encodeURIComponent(shareText)}` : ""
+  const shareText = document.status === "issued" ? `السلام عليكم ورحمة الله وبركاته،\n\nيسر ${organizationName} أن ترسل لكم ${documentTitle} رقم ${document.number} بتاريخ ${formatDate(document.issue_date)}، وبإجمالي ${formatCurrency(Number(document.total))}.\n\nنأمل التكرم بمراجعة المستند المرفق.\n\nمع خالص التحية،\n${organizationName}${seller.vat_number ? `\nالرقم الضريبي: ${seller.vat_number}` : ""}` : ""
+  const emailUrl = customer.email ? `mailto:${customer.email}?subject=${encodeURIComponent(`${documentTitle} رقم ${document.number}`)}&body=${encodeURIComponent(shareText)}` : ""
   const whatsappPhone = customer.phone?.replace(/\D/g, "").replace(/^0/, "966") ?? ""
   const whatsappUrl = whatsappPhone ? `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(shareText)}` : ""
   const pdfFileName = `tax-invoice-${document.number}.pdf`
@@ -108,6 +114,18 @@ export function DocumentViewPage() {
     } finally { setCreatingPdf(false) }
   }
 
+  const issueAdjustment=async()=>{
+    const taxableAmount=Number(adjustment.taxable_amount)
+    if(!Number.isFinite(taxableAmount)||taxableAmount<=0||adjustment.reason.trim().length<5){toast({title:"أكمل مبلغ التصحيح وسببه",variant:"error"});return}
+    setSavingAdjustment(true)
+    try{
+      const result=await createDocumentAdjustment(id,{type:adjustment.type,issue_date:adjustment.issue_date,reason:adjustment.reason.trim(),taxable_amount:taxableAmount})
+      toast({title:`تم إصدار ${adjustment.type==="credit_note"?"الإشعار الدائن":"الإشعار المدين"}`,description:"حُفظ كمستند مستقل وربط بالفاتورة والإقرار وحساب العميل.",variant:"success"})
+      window.location.href=`/documents/${result.document.id}`
+    }catch(error){toast({title:"تعذر إصدار الإشعار",description:error instanceof Error?error.message:"راجع البيانات",variant:"error"})}
+    finally{setSavingAdjustment(false)}
+  }
+
   return (
     <div className="min-h-screen bg-muted/20 p-3 sm:p-6" dir="rtl">
       <div className="mx-auto mb-3 flex max-w-4xl items-center justify-between print:hidden">
@@ -118,6 +136,7 @@ export function DocumentViewPage() {
               <Link to="/documents/$id/edit" params={{ id }}><Pencil className="size-4" />تعديل المسودة</Link>
             </Button>
           ) : null}
+          {document.type==="invoice"&&["issued","paid","partially_paid"].includes(document.status)?<Button variant="outline" className="gap-2" onClick={()=>{ setShowAdjustment((value)=>!value); }}><CirclePlus className="size-4"/>إشعار دائن / مدين</Button>:null}
           {document.status !== "draft"&&document.status!=="cancelled"?<Button variant="outline" className="gap-2 text-destructive" onClick={()=>{void cancel()}}><XCircle className="size-4"/>إلغاء المستند</Button>:null}
           <Button variant="outline" className="gap-2" onClick={() => { window.print() }}>
             <Printer className="size-4" />طباعة / PDF
@@ -129,14 +148,17 @@ export function DocumentViewPage() {
         </div>
       </div>
 
+      {showAdjustment?<div className="mx-auto mb-4 max-w-4xl rounded-xl border bg-card p-4 shadow-sm print:hidden"><h2 className="font-semibold">تصحيح الفاتورة دون تعديل أصلها</h2><p className="mt-1 text-sm text-muted-foreground">الإشعار الدائن يخفض المبيعات والضريبة والمطلوب من العميل، والإشعار المدين يزيدها. أدخل المبلغ قبل الضريبة وسيحسب النظام 15% تلقائيًا.</p><div className="mt-4 grid gap-3 sm:grid-cols-4"><div className="space-y-1"><Label>نوع الإشعار</Label><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={adjustment.type} onChange={(event)=>{ setAdjustment({...adjustment,type:event.target.value as "credit_note"|"debit_note"}); }}><option value="credit_note">إشعار دائن — تخفيض</option><option value="debit_note">إشعار مدين — زيادة</option></select></div><div className="space-y-1"><Label>التاريخ</Label><Input type="date" value={adjustment.issue_date} onChange={(event)=>{ setAdjustment({...adjustment,issue_date:event.target.value}); }}/></div><div className="space-y-1"><Label>المبلغ قبل الضريبة</Label><Input type="number" min="0.01" step="0.01" dir="ltr" value={adjustment.taxable_amount} onChange={(event)=>{ setAdjustment({...adjustment,taxable_amount:event.target.value}); }}/></div><div className="space-y-1"><Label>سبب التصحيح</Label><Input value={adjustment.reason} onChange={(event)=>{ setAdjustment({...adjustment,reason:event.target.value}); }}/></div></div><div className="mt-3 flex gap-2"><Button onClick={()=>void issueAdjustment()} disabled={savingAdjustment}>{savingAdjustment?"جاري الإصدار…":"إصدار الإشعار"}</Button><Button variant="ghost" onClick={()=>{ setShowAdjustment(false); }}>إلغاء</Button></div></div>:null}
+
       <article ref={printAreaRef} data-print-area className="mx-auto max-w-4xl rounded-xl border bg-white p-5 shadow-sm sm:p-8 print:border-0 print:shadow-none">
         <header className="flex justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold">{isQuotation?"عرض سعر":"فاتورة ضريبية"}</h1>
+            <h1 className="text-2xl font-bold">{documentTitle}</h1>
             <p className="font-mono text-primary">{document.status === "draft" ? "مسودة غير صادرة" : document.number}</p>{document.status==="cancelled"?<p className="mt-2 font-bold text-destructive">مستند ملغى</p>:null}
           </div>
           <div className="flex items-start gap-4">{assetUrls.logo ? <img src={assetUrls.logo} alt="شعار المنشأة" className="h-[5.5rem] w-[8.8rem] object-contain" /> : null}<div className="text-end text-sm"><p>{formatDate(document.issue_date)}</p><p className="text-muted-foreground">{document.status === "issued" ? "صادرة" : "مسودة"}</p></div></div>
         </header>
+        {document.source_document_id?<div className="mt-4 rounded-lg border bg-muted/30 p-3 text-sm"><strong>مرجع التصحيح:</strong> الفاتورة رقم {document.reference_data.source_invoice_number||"—"}<br/><span className="text-muted-foreground">{document.correction_reason}</span></div>:null}
         <Separator className="my-5" />
 
         <section className="grid gap-5 text-sm sm:grid-cols-2">

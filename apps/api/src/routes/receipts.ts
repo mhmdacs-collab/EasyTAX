@@ -4,6 +4,7 @@ import { zValidator } from "@hono/zod-validator"
 import { auth } from "../lib/auth"
 import { sql, withTransaction } from "../lib/db"
 import { issueReceipt } from "../lib/receiptService"
+import { activePeriodLock, lockedPeriodMessage } from "../lib/periodLocks"
 
 export const receiptsRouter = new Hono()
 
@@ -53,6 +54,8 @@ receiptsRouter.post("/", zValidator("json", receiptSchema), async (c) => {
   if (!orgId) return c.json({ error: "غير مصرح" }, 401)
   const body = c.req.valid("json")
   const result = await withTransaction(async (client) => {
+    const periodLock = await activePeriodLock(client, orgId, body.receipt_date)
+    if (periodLock) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(periodLock) }
     const organization = await client.query("SELECT * FROM organizations WHERE id=$1 AND deleted_at IS NULL", [orgId])
     if (!organization.rows[0]) return { error: "ORGANIZATION_NOT_FOUND" as const }
     const method = await client.query("SELECT name FROM payment_methods WHERE organization_id=$1 AND name=$2 AND is_active=TRUE LIMIT 1", [orgId, body.payment_method_name])
@@ -73,6 +76,7 @@ receiptsRouter.post("/", zValidator("json", receiptSchema), async (c) => {
     return { receipt }
   })
   if ("receipt" in result) return c.json(result, 201)
+  if (result.error === "PERIOD_LOCKED") return c.json({ error: result.message }, 409)
   const messages = { CUSTOMER_NOT_FOUND: "العميل غير موجود", PAYMENT_METHOD_NOT_FOUND: "طريقة السداد غير متاحة", ORGANIZATION_NOT_FOUND: "المنشأة غير موجودة" } as const
   return c.json({ error: messages[result.error] }, 400)
 })
@@ -86,6 +90,8 @@ receiptsRouter.post("/:id/cancel",zValidator("json",cancelSchema),async(c)=>{
     const row=receipt.rows[0] as Record<string,unknown>|undefined
     if(!row)return {error:"NOT_FOUND" as const}
     if(row.status!=="issued")return {error:"ALREADY_CANCELLED" as const}
+    const periodLock=await activePeriodLock(client,orgId,String(row.receipt_date).slice(0,10))
+    if(periodLock)return {error:"PERIOD_LOCKED" as const,message:lockedPeriodMessage(periodLock)}
     const cancelled=await client.query("UPDATE customer_receipts SET status='cancelled',cancelled_at=NOW(),cancellation_reason=$1,updated_at=NOW() WHERE id=$2 RETURNING *",[reason,row.id])
     if(row.source_payment_id){
       await client.query("UPDATE document_payments SET is_collected=FALSE WHERE id=$1",[row.source_payment_id])
@@ -95,5 +101,6 @@ receiptsRouter.post("/:id/cancel",zValidator("json",cancelSchema),async(c)=>{
     return {receipt:cancelled.rows[0]}
   })
   if("receipt" in result)return c.json(result)
+  if(result.error==="PERIOD_LOCKED")return c.json({error:result.message},409)
   return c.json({error:result.error==="NOT_FOUND"?"سند القبض غير موجود":"سند القبض ملغى مسبقًا"},result.error==="NOT_FOUND"?404:409)
 })

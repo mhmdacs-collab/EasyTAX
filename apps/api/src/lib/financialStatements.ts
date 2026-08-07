@@ -90,6 +90,11 @@ export type FinancialSourceTotals = {
   standaloneAdvances: number
   expensePayments: number
   purchasePayments: number
+  openingCash: number
+  capitalBalance: number
+  ownerWithdrawals: number
+  currentLoanBalance: number
+  nonCurrentLoanBalance: number
   systemCashBalance: number
   tradeReceivables: number
   tradePayables: number
@@ -241,10 +246,10 @@ export function buildFinancialStatements(input: BuildFinancialStatementsInput): 
 
   const tradePayables = round(current.tradePayables)
   const priorTradePayables = round(prior.tradePayables)
-  const currentLoans = resolved(inputs, "current_loans", "current")
-  const priorCurrentLoans = resolved(inputs, "current_loans", "prior")
-  const nonCurrentLoans = resolved(inputs, "non_current_loans", "current")
-  const priorNonCurrentLoans = resolved(inputs, "non_current_loans", "prior")
+  const currentLoans = resolved(inputs, "current_loans", "current", current.currentLoanBalance)
+  const priorCurrentLoans = resolved(inputs, "current_loans", "prior", prior.currentLoanBalance)
+  const nonCurrentLoans = resolved(inputs, "non_current_loans", "current", current.nonCurrentLoanBalance)
+  const priorNonCurrentLoans = resolved(inputs, "non_current_loans", "prior", prior.nonCurrentLoanBalance)
   const employeeBenefits = resolved(inputs, "employee_benefits", "current")
   const priorEmployeeBenefits = resolved(inputs, "employee_benefits", "prior")
   const zakatPayable = resolved(inputs, "zakat_payable", "current")
@@ -264,13 +269,13 @@ export function buildFinancialStatements(input: BuildFinancialStatementsInput): 
   const totalLiabilities = round(totalCurrentLiabilities + totalNonCurrentLiabilities)
   const priorTotalLiabilities = round(priorTotalCurrentLiabilities + priorTotalNonCurrentLiabilities)
 
-  const capital = resolved(inputs, "capital", "current")
-  const priorCapital = resolved(inputs, "capital", "prior")
+  const capital = resolved(inputs, "capital", "current", current.capitalBalance)
+  const priorCapital = resolved(inputs, "capital", "prior", prior.capitalBalance)
   const statutoryReserve = resolved(inputs, "statutory_reserve", "current")
   const priorStatutoryReserve = resolved(inputs, "statutory_reserve", "prior")
   const retainedOpening = resolved(inputs, "retained_earnings_opening", "current")
   const priorRetainedOpening = resolved(inputs, "retained_earnings_opening", "prior")
-  const ownerDistributions = resolved(inputs, "owner_distributions", "current")
+  const ownerDistributions = resolved(inputs, "owner_distributions", "current", current.ownerWithdrawals)
   const priorOwnerDistributions = resolved(inputs, "owner_distributions", "prior")
   const retainedEarnings = round(retainedOpening + netProfit - ownerDistributions)
   const priorRetainedEarnings = round(priorRetainedOpening + priorNetProfit - priorOwnerDistributions)
