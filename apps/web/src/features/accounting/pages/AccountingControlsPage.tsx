@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react"
 import type { ReactNode } from "react"
-import { Landmark, LockKeyhole, RefreshCw, RotateCcw, WalletCards } from "lucide-react"
+import { CircleAlert, Landmark, LockKeyhole, RefreshCw, RotateCcw, ShieldCheck, WalletCards } from "lucide-react"
 import {
   createFinancialMovement,
+  fetchLedgerHealth,
   addTaxPurchasePayment,
   fetchSupplierAccount,
   listFinancialMovements,
@@ -12,6 +13,7 @@ import {
   unlockPeriod,
   type FinancialMovement,
   type FinancialMovementType,
+  type LedgerHealth,
   type PeriodLock,
   type SupplierAccount,
   type SupplierAccountSummary,
@@ -38,6 +40,7 @@ export default function AccountingControlsPage(){
   const [movements,setMovements]=useState<FinancialMovement[]>([])
   const [locks,setLocks]=useState<PeriodLock[]>([])
   const [suppliers,setSuppliers]=useState<SupplierAccountSummary[]>([])
+  const [ledgerHealth,setLedgerHealth]=useState<LedgerHealth>()
   const [supplierAccount,setSupplierAccount]=useState<SupplierAccount>()
   const [loading,setLoading]=useState(true)
   const [saving,setSaving]=useState(false)
@@ -48,8 +51,8 @@ export default function AccountingControlsPage(){
   const load=useCallback(async()=>{
     setLoading(true)
     try{
-      const [movementResult,lockResult,supplierResult]=await Promise.all([listFinancialMovements(year),listPeriodLocks(),listSupplierAccounts()])
-      setMovements(movementResult.movements);setLocks(lockResult.locks);setSuppliers(supplierResult.suppliers)
+      const [movementResult,lockResult,supplierResult,healthResult]=await Promise.all([listFinancialMovements(year),listPeriodLocks(),listSupplierAccounts(),fetchLedgerHealth()])
+      setMovements(movementResult.movements);setLocks(lockResult.locks);setSuppliers(supplierResult.suppliers);setLedgerHealth(healthResult.health)
     }catch(error){toast({title:"تعذر تحميل الضبط المالي",description:error instanceof Error?error.message:"حاول مرة أخرى",variant:"error"})}
     finally{setLoading(false)}
   },[year])
@@ -100,6 +103,7 @@ export default function AccountingControlsPage(){
   const activeLocks=locks.filter((lock)=>lock.status==="locked")
   const isLoan=form.movement_type==="loan_received"||form.movement_type==="loan_repayment"
   return <div className="space-y-6 p-4 sm:p-6" dir="rtl">
+    {ledgerHealth?<Card className={ledgerHealth.isHealthy?"border-emerald-200 bg-emerald-50/50":"border-destructive/40 bg-destructive/5"}><CardContent className="flex items-center gap-3 p-4">{ledgerHealth.isHealthy?<ShieldCheck className="size-6 text-emerald-600"/>:<CircleAlert className="size-6 text-destructive"/>}<div><p className="font-semibold">{ledgerHealth.isHealthy?"المحرك المحاسبي متوازن":"تحتاج القيود إلى مطابقة"}</p><p className="text-sm text-muted-foreground">{ledgerHealth.isHealthy?"كل العمليات المالية مرحّلة، ومجموع المدين يساوي مجموع الدائن.":"سيمنع النظام الإقفال حتى معالجة الاختلاف، دون التأثير على بياناتك الأصلية."}</p></div></CardContent></Card>:null}
     <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-2xl font-bold">الضبط المالي</h1><p className="mt-1 text-sm text-muted-foreground">حركات لا تنتج عن فاتورة، الفترات المقفلة، وحسابات الموردين — وكلها تدخل في القوائم تلقائيًا.</p></div><Button variant="outline" onClick={()=>void load()} disabled={loading}><RefreshCw className="me-2 size-4"/>تحديث</Button></div>
 
     <Card><CardHeader><CardTitle className="flex items-center gap-2"><WalletCards className="size-5"/>الأرصدة وحركات المالك والقروض</CardTitle><p className="text-sm text-muted-foreground">لا تسجل بيعًا أو مصروفًا هنا. استخدم هذا القسم فقط للنقد الافتتاحي، تمويل المالك، المسحوبات والقروض.</p></CardHeader><CardContent className="space-y-4">

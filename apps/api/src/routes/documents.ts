@@ -8,6 +8,8 @@ import { issueReceipt } from "../lib/receiptService"
 import { calculateDocument } from "../lib/documentCalculations"
 import { activePeriodLock, lockedPeriodMessage } from "../lib/periodLocks"
 import { availableCreditAmount, calculateTaxAdjustment } from "../lib/documentAdjustments"
+import { postJournalEntry, reverseSourceJournalEntries } from "../lib/accountingEngine"
+import { documentJournal } from "../lib/accountingRules"
 
 export const documentsRouter = new Hono()
 
@@ -111,6 +113,7 @@ documentsRouter.post("/:id/issue", async (c) => {
     const issued = await client.query(`UPDATE documents SET number=$1,status='issued',uuid=$2,issue_time=LOCALTIME,organization_snapshot=$3,updated_at=NOW(),sync_version=sync_version+1 WHERE id=$4 RETURNING id,number`, [number,randomUUID(),JSON.stringify(organization.rows[0]),c.req.param("id")])
     const issuedRow=issued.rows[0] as {id:string;number:string}
     if(documentType==="invoice"){
+      await postJournalEntry(client,{organizationId,entryDate:String(draft.rows[0].issue_date).slice(0,10),sourceType:"document",sourceId:c.req.param("id"),idempotencyKey:`document:${c.req.param("id")}:issued`,description:`فاتورة ضريبية رقم ${number}`,customerId:String(draft.rows[0].customer_id),lines:documentJournal({type:"invoice",total:Number(draft.rows[0].total),taxTotal:Number(draft.rows[0].tax_total),retentionTotal:Number(draft.rows[0].retention_total)})})
       const payments=await client.query("SELECT * FROM document_payments WHERE document_id=$1 AND is_collected=TRUE ORDER BY created_at FOR UPDATE",[c.req.param("id")])
       const customer=draft.rows[0].customer_snapshot as Record<string,unknown>
       const seller=organization.rows[0] as Record<string,unknown>
@@ -176,6 +179,7 @@ documentsRouter.post("/:id/adjustments", zValidator("json", adjustmentSchema, (r
     await client.query(`INSERT INTO document_items(
       document_id,description,quantity,unit_price,discount,tax_rate,retention_rate,line_subtotal,line_tax,line_retention,line_total,sort_order
     ) VALUES($1,$2,1,$3,0,15,0,$3,$4,0,$5,0)`, [id, `تصحيح على الفاتورة رقم ${source.number}: ${body.reason}`, adjustment.taxable, taxAmount, total])
+    await postJournalEntry(client,{organizationId,entryDate:body.issue_date,sourceType:"document",sourceId:id,idempotencyKey:`document:${id}:issued`,description:`${body.type === "credit_note" ? "إشعار دائن" : "إشعار مدين"} رقم ${number}`,customerId:String(source.customer_id),lines:documentJournal({type:body.type,total,taxTotal:taxAmount})})
     await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,reason,snapshot) VALUES($1,'document',$2,'issued',$3,$4)", [organizationId, id, body.reason, JSON.stringify(inserted.rows[0])])
     return { document: inserted.rows[0] }
   })
@@ -217,6 +221,7 @@ documentsRouter.post("/:id/cancel",zValidator("json",cancelSchema),async(c)=>{
       LIMIT 1
     `,[row.id])
     if(activeReceipts.rows[0])return {error:"ACTIVE_RECEIPTS" as const}
+    await reverseSourceJournalEntries(client,{organizationId,sourceType:"document",sourceId:String(row.id),reversalDate:String(row.issue_date).slice(0,10),reason})
     const cancelled=await client.query("UPDATE documents SET status='cancelled',cancelled_at=NOW(),cancellation_reason=$1,updated_at=NOW(),sync_version=sync_version+1 WHERE id=$2 RETURNING *",[reason,row.id])
     await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,reason,snapshot) VALUES($1,'document',$2,'cancelled',$3,$4)",[organizationId,row.id,reason,JSON.stringify(cancelled.rows[0])])
     return {document:cancelled.rows[0]}

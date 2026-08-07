@@ -6,6 +6,8 @@ import { auth } from "../lib/auth"
 import { sql, withTransaction } from "../lib/db"
 import { applyExpensePayment, reverseRecordedPayment } from "../lib/expensePayments"
 import { activePeriodLock, lockedPeriodMessage } from "../lib/periodLocks"
+import { postJournalEntry, reverseSourceJournalEntries } from "../lib/accountingEngine"
+import { payablePaymentJournal, purchaseJournal, purchaseTaxExclusionJournal } from "../lib/accountingRules"
 
 export const purchasesRouter = new Hono()
 const paymentMethods = ["cash", "bank_transfer", "card", "sadad"] as const
@@ -97,6 +99,7 @@ purchasesRouter.post("/", zValidator("json", purchaseSchema), async (c) => {
       RETURNING *`, [orgId, internalNumber, body.supplier_name, body.supplier_vat_number, body.invoice_number, invoiceDate,
       body.invoice_timestamp, subtotal, body.tax_total, body.total, body.qr_payload, JSON.stringify(body.qr_fields),
       body.duplicate_override, duplicate?.id ?? null])
+    await postJournalEntry(client,{organizationId:orgId,entryDate:invoiceDate,sourceType:"purchase_invoice",sourceId:String(result.rows[0].id),idempotencyKey:`purchase_invoice:${String(result.rows[0].id)}:recorded`,description:`فاتورة مشتريات ${internalNumber}`,supplierReference:body.supplier_vat_number,lines:purchaseJournal({subtotal,taxTotal:body.tax_total,total:body.total})})
     await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,snapshot) VALUES($1,'purchase_invoice',$2,'created',$3)", [orgId, result.rows[0].id, JSON.stringify(result.rows[0])])
     return result.rows[0]
   })
@@ -122,6 +125,10 @@ purchasesRouter.patch("/:id/status", zValidator("json", statusSchema), async (c)
     const periodLock = await activePeriodLock(client, orgId, String(current.rows[0].invoice_date).slice(0, 10))
     if (periodLock) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(periodLock) }
     if (body.status === "cancelled" && Number(current.rows[0].paid_amount) > 0) return { error: "ACTIVE_PAYMENTS" as const }
+    if(body.status==="excluded"&&current.rows[0].status==="included"&&Number(current.rows[0].tax_total)>0)await postJournalEntry(client,{organizationId:orgId,entryDate:String(current.rows[0].invoice_date).slice(0,10),sourceType:"purchase_tax_adjustment",sourceId:String(current.rows[0].id),idempotencyKey:`purchase_invoice:${String(current.rows[0].id)}:tax_excluded`,description:`استبعاد ضريبة فاتورة ${String(current.rows[0].internal_number??"")}`,supplierReference:String(current.rows[0].supplier_vat_number??""),lines:purchaseTaxExclusionJournal(Number(current.rows[0].tax_total))})
+    if(body.status==="included"&&current.rows[0].status==="excluded")await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"purchase_tax_adjustment",sourceId:String(current.rows[0].id),reversalDate:String(current.rows[0].invoice_date).slice(0,10),reason:"إعادة إدراج الفاتورة في الإقرار الضريبي"})
+    if(body.status==="cancelled"&&current.rows[0].status==="excluded")await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"purchase_tax_adjustment",sourceId:String(current.rows[0].id),reversalDate:String(current.rows[0].invoice_date).slice(0,10),reason:body.reason!})
+    if(body.status === "cancelled") await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"purchase_invoice",sourceId:String(current.rows[0].id),reversalDate:String(current.rows[0].invoice_date).slice(0,10),reason:body.reason!})
     const updated = await client.query(`UPDATE purchase_invoices SET status=$1,include_in_tax_return=$2,
       accounting_status=CASE WHEN $1='cancelled' THEN 'cancelled' ELSE accounting_status END,
       exclusion_reason=$3,cancelled_at=CASE WHEN $1='cancelled' THEN NOW() ELSE NULL END,
@@ -174,6 +181,7 @@ purchasesRouter.post("/:id/payments", zValidator("json", paymentSchema, (result,
       paymentId, orgId, purchase.id, input.payment_date, input.amount, input.payment_method, beneficiaryName,
       input.beneficiary_iban || null, input.reference_number || null, input.notes || null,
     ])
+    await postJournalEntry(client,{organizationId:orgId,entryDate:input.payment_date,sourceType:"purchase_payment",sourceId:paymentId,idempotencyKey:`purchase_payment:${paymentId}:issued`,description:`سداد فاتورة مشتريات ${String(purchase.internal_number??purchase.invoice_number??"")}`,supplierReference:String(purchase.supplier_vat_number??""),lines:payablePaymentJournal(input.amount)})
     const updated = await client.query(`UPDATE purchase_invoices SET
       paid_amount=$1,payment_status=$2,last_payment_method=$3,beneficiary_iban=COALESCE($4,beneficiary_iban),updated_at=NOW()
       WHERE id=$5 RETURNING *`, [applied.paid, applied.status, input.payment_method, input.beneficiary_iban || null, purchase.id])
@@ -209,6 +217,7 @@ purchasesRouter.post("/:id/payments/:paymentId/cancel", zValidator("json", cance
     if (periodLock) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(periodLock) }
     const reversal = reverseRecordedPayment(Number(purchase.total), Number(purchase.paid_amount), Number(payment.amount))
     if (!reversal.ok) return { error: "INVALID_REVERSAL" as const }
+    await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"purchase_payment",sourceId:String(payment.id),reversalDate:String(payment.payment_date).slice(0,10),reason})
     const cancelled = await client.query("UPDATE purchase_invoice_payments SET status='cancelled',cancelled_at=NOW(),cancellation_reason=$1,updated_at=NOW() WHERE id=$2 RETURNING *", [reason, payment.id])
     const updated = await client.query("UPDATE purchase_invoices SET paid_amount=$1,payment_status=$2,updated_at=NOW() WHERE id=$3 RETURNING *", [reversal.paid, reversal.status, purchase.id])
     await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,reason,snapshot) VALUES($1,'purchase_payment',$2,'payment_cancelled',$3,$4)", [orgId, payment.id, reason, JSON.stringify(cancelled.rows[0])])

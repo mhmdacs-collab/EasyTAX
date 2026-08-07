@@ -3,6 +3,8 @@ import { z } from "zod"
 import { zValidator } from "@hono/zod-validator"
 import { auth } from "../lib/auth"
 import { sql, withTransaction } from "../lib/db"
+import { ledgerHealth, postJournalEntry } from "../lib/accountingEngine"
+import { vatSettlementJournal } from "../lib/accountingRules"
 
 export const taxReturnsRouter = new Hono()
 
@@ -80,6 +82,8 @@ taxReturnsRouter.post("/close", zValidator("json", closeSchema), async (c) => {
   const body = c.req.valid("json")
   const { startsOn, endsOn } = quarterRange(body.year, body.quarter)
   const result = await withTransaction(async (client) => {
+    const health=await ledgerHealth(client,orgId)
+    if(!health.isHealthy)return {error:"LEDGER_UNHEALTHY" as const,health}
     const existing = await client.query("SELECT id FROM accounting_period_locks WHERE organization_id=$1 AND lock_type='tax_return' AND starts_on=$2 AND ends_on=$3 AND status='locked' FOR UPDATE", [orgId, startsOn, endsOn])
     if (existing.rows[0]) return { error: "ALREADY_CLOSED" as const }
     const sales = await client.query(`SELECT
@@ -103,11 +107,13 @@ taxReturnsRouter.post("/close", zValidator("json", closeSchema), async (c) => {
       VALUES($1,$2,$3,$4,$5,$6,'filed',NOW()) ON CONFLICT(tax_period_id) DO UPDATE SET
       sales_tax=EXCLUDED.sales_tax,purchase_tax=EXCLUDED.purchase_tax,net_tax=EXCLUDED.net_tax,snapshot=EXCLUDED.snapshot,status='filed',filed_at=NOW(),updated_at=NOW()
       RETURNING id`, [orgId, period.rows[0].id, salesTax, purchaseTax, netTax, JSON.stringify(snapshot)])
+    if(salesTax>0||purchaseTax>0)await postJournalEntry(client,{organizationId:orgId,entryDate:endsOn,sourceType:"tax_return",sourceId:String(taxReturn.rows[0].id),idempotencyKey:`tax_return:${String(taxReturn.rows[0].id)}:filed`,description:`إقفال ضريبة القيمة المضافة للربع ${body.quarter}/${body.year}`,lines:vatSettlementJournal({outputTax:salesTax,inputTax:purchaseTax})})
     const lock = await client.query(`INSERT INTO accounting_period_locks(organization_id,lock_type,starts_on,ends_on,source_entity_id,reason)
       VALUES($1,'tax_return',$2,$3,$4,$5) RETURNING *`, [orgId, startsOn, endsOn, taxReturn.rows[0].id, body.reason])
     await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,reason,snapshot) VALUES($1,'tax_return',$2,'closed',$3,$4)", [orgId, taxReturn.rows[0].id, body.reason, JSON.stringify({ ...snapshot, lock_id: lock.rows[0].id })])
     return { lock: lock.rows[0], tax_return: { id: taxReturn.rows[0].id, sales_tax: salesTax, purchase_tax: purchaseTax, net_tax: netTax } }
   })
+  if ("error" in result && result.error==="LEDGER_UNHEALTHY") return c.json({error:"لا يمكن إقفال الإقرار قبل اكتمال مطابقة القيود المحاسبية",health:result.health},409)
   if ("error" in result) return c.json({ error: "الفترة الضريبية مقفلة مسبقًا" }, 409)
   return c.json(result, 201)
 })

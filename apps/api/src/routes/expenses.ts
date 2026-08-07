@@ -6,6 +6,8 @@ import { auth } from "../lib/auth"
 import { sql, withTransaction } from "../lib/db"
 import { applyExpensePayment } from "../lib/expensePayments"
 import { activePeriodLock, lockedPeriodMessage } from "../lib/periodLocks"
+import { postJournalEntry, reverseSourceJournalEntries } from "../lib/accountingEngine"
+import { expenseJournal, payablePaymentJournal } from "../lib/accountingRules"
 
 export const expensesRouter = new Hono()
 
@@ -89,10 +91,15 @@ expensesRouter.post("/", zValidator("json", expenseSchema, (result, c) => {
       input.payment_status, input.paid_amount, input.payment_method ?? null, input.supplier_name || null,
       input.beneficiary_iban || null, input.reference_number || null, input.project_reference || null, input.notes || null,
     ])
-    if (input.paid_amount > 0 && input.payment_method) await client.query(
-      "INSERT INTO expense_payments(id,organization_id,expense_id,payment_date,amount,payment_method,beneficiary_name,beneficiary_iban,reference_number) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
-      [randomUUID(), orgId, id, input.expense_date, input.paid_amount, input.payment_method, input.supplier_name || null, input.beneficiary_iban || null, input.reference_number || null],
-    )
+    await postJournalEntry(client,{organizationId:orgId,entryDate:input.expense_date,sourceType:"expense",sourceId:id,idempotencyKey:`expense:${id}:recorded`,description:input.description,supplierReference:input.supplier_name??null,lines:expenseJournal({amount:input.amount,financialClass:input.financial_class})})
+    if (input.paid_amount > 0 && input.payment_method) {
+      const paymentId=randomUUID()
+      await client.query(
+        "INSERT INTO expense_payments(id,organization_id,expense_id,payment_date,amount,payment_method,beneficiary_name,beneficiary_iban,reference_number) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+        [paymentId, orgId, id, input.expense_date, input.paid_amount, input.payment_method, input.supplier_name || null, input.beneficiary_iban || null, input.reference_number || null],
+      )
+      await postJournalEntry(client,{organizationId:orgId,entryDate:input.expense_date,sourceType:"expense_payment",sourceId:paymentId,idempotencyKey:`expense_payment:${paymentId}:recorded`,description:`سداد ${input.description}`,supplierReference:input.supplier_name??null,lines:payablePaymentJournal(input.paid_amount)})
+    }
     return result.rows[0]
   })
   if ("error" in expense) return c.json({ error: expense.message }, 409)
@@ -126,7 +133,9 @@ expensesRouter.post("/:id/payments", zValidator("json", paymentSchema, (result, 
     if (periodLock) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(periodLock) }
     const payment = applyExpensePayment(Number(expense.amount), Number(expense.paid_amount), input.amount)
     if (!payment.ok) return { error: payment.reason, remaining: payment.remaining }
-    await client.query("INSERT INTO expense_payments(id,organization_id,expense_id,payment_date,amount,payment_method,beneficiary_name,beneficiary_iban,reference_number,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", [randomUUID(), orgId, expense.id, input.payment_date, input.amount, input.payment_method, input.beneficiary_name, input.beneficiary_iban || null, input.reference_number || null, input.notes || null])
+    const paymentId=randomUUID()
+    await client.query("INSERT INTO expense_payments(id,organization_id,expense_id,payment_date,amount,payment_method,beneficiary_name,beneficiary_iban,reference_number,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", [paymentId, orgId, expense.id, input.payment_date, input.amount, input.payment_method, input.beneficiary_name, input.beneficiary_iban || null, input.reference_number || null, input.notes || null])
+    await postJournalEntry(client,{organizationId:orgId,entryDate:input.payment_date,sourceType:"expense_payment",sourceId:paymentId,idempotencyKey:`expense_payment:${paymentId}:recorded`,description:`سداد ${String(expense.description)}`,supplierReference:input.beneficiary_name,lines:payablePaymentJournal(input.amount)})
     const updated = await client.query("UPDATE expenses SET paid_amount=$1,payment_status=$2,payment_method=$3,supplier_name=$4,beneficiary_iban=COALESCE($5,beneficiary_iban),updated_at=NOW() WHERE id=$6 RETURNING *", [payment.paid, payment.status, input.payment_method, input.beneficiary_name, input.beneficiary_iban || null, expense.id])
     return { expense: updated.rows[0] }
   })
@@ -150,6 +159,7 @@ expensesRouter.delete("/:id", async (c) => {
     const periodLock = await activePeriodLock(client, orgId, String(expense.expense_date).slice(0, 10))
     if (periodLock) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(periodLock) }
     if (Number(expense.paid_amount) > 0) return { error: "HAS_PAYMENTS" as const }
+    await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"expense",sourceId:String(expense.id),reversalDate:String(expense.expense_date).slice(0,10),reason:"حذف المصروف قبل الإقفال"})
     await client.query("UPDATE expenses SET deleted_at=NOW(),updated_at=NOW() WHERE id=$1", [expense.id])
     return { ok: true as const }
   })
