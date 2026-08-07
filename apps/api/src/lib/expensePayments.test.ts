@@ -1,0 +1,15 @@
+import assert from "node:assert/strict"
+import test from "node:test"
+import { applyExpensePayment } from "./expensePayments"
+
+void test("partial expense payment updates the remaining balance", () => {
+  assert.deepEqual(applyExpensePayment(1_000, 200, 300), { ok:true, paid:500, remaining:500, status:"partially_paid" })
+})
+
+void test("final expense payment closes the balance", () => {
+  assert.deepEqual(applyExpensePayment(1_000, 400, 600), { ok:true, paid:1_000, remaining:0, status:"paid" })
+})
+
+void test("expense payment cannot exceed the remaining balance", () => {
+  assert.deepEqual(applyExpensePayment(1_000, 800, 300), { ok:false, reason:"INVALID_AMOUNT", remaining:200 })
+})
