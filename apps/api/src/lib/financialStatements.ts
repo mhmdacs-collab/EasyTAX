@@ -1,8 +1,6 @@
 export const financialInputKeys = [
   "cash_and_cash_equivalents",
-  "trade_receivables",
   "inventory",
-  "prepayments",
   "other_current_assets",
   "related_party_receivable",
   "property_plant_equipment",
@@ -10,7 +8,6 @@ export const financialInputKeys = [
   "investment_property",
   "equity_method_investments",
   "other_non_current_assets",
-  "trade_payables",
   "current_loans",
   "non_current_loans",
   "employee_benefits",
@@ -41,9 +38,7 @@ export const financialInputDefinitions: Array<{
   description: string
 }> = [
   { key: "cash_and_cash_equivalents", label: "النقد وما في حكمه", group: "assets", description: "الرصيد الفعلي للصندوق والحسابات البنكية في نهاية السنة." },
-  { key: "trade_receivables", label: "الذمم المدينة التجارية", group: "assets", description: "اتركه فارغًا لاعتماد رصيد فواتير العملاء غير المحصل تلقائيًا." },
   { key: "inventory", label: "المخزون", group: "assets", description: "قيمة المخزون في نهاية السنة إن وجد." },
-  { key: "prepayments", label: "المصاريف المدفوعة مقدمًا", group: "assets", description: "اتركه فارغًا لاعتماد المصروفات المصنفة كمدفوعة مقدمًا." },
   { key: "other_current_assets", label: "موجودات متداولة أخرى", group: "assets", description: "أي أصول قصيرة الأجل لا تدخل في البنود السابقة." },
   { key: "related_party_receivable", label: "مطلوب من أطراف ذات علاقة", group: "assets", description: "المبالغ المستحقة للمنشأة من الشركاء أو الأطراف ذات العلاقة." },
   { key: "property_plant_equipment", label: "ممتلكات وآلات ومعدات - بالصافي", group: "assets", description: "القيمة الدفترية بعد الإهلاك، أو اتركه فارغًا لاعتماد مشتريات الأصول المسجلة." },
@@ -51,7 +46,6 @@ export const financialInputDefinitions: Array<{
   { key: "investment_property", label: "العقارات الاستثمارية", group: "assets", description: "العقارات المحتفظ بها للاستثمار إن وجدت." },
   { key: "equity_method_investments", label: "استثمارات بطريقة حقوق الملكية", group: "assets", description: "استثمارات الشركات الزميلة والمشروعات المشتركة إن وجدت." },
   { key: "other_non_current_assets", label: "موجودات غير متداولة أخرى", group: "assets", description: "أي أصول طويلة الأجل أخرى." },
-  { key: "trade_payables", label: "المبالغ المستحقة للموردين", group: "liabilities", description: "اتركه فارغًا لاعتماد المصروفات غير المسددة تلقائيًا." },
   { key: "current_loans", label: "قروض والتزامات متداولة", group: "liabilities", description: "الأقساط والقروض المستحقة خلال اثني عشر شهرًا." },
   { key: "non_current_loans", label: "قروض والتزامات غير متداولة", group: "liabilities", description: "القروض المستحقة بعد أكثر من اثني عشر شهرًا." },
   { key: "employee_benefits", label: "التزام منافع الموظفين", group: "liabilities", description: "مكافآت نهاية الخدمة والالتزامات طويلة الأجل للموظفين." },
@@ -205,12 +199,12 @@ export function buildFinancialStatements(input: BuildFinancialStatementsInput): 
 
   const cash = resolved(inputs, "cash_and_cash_equivalents", "current", current.systemCashBalance)
   const priorCash = resolved(inputs, "cash_and_cash_equivalents", "prior", prior.systemCashBalance)
-  const receivables = resolved(inputs, "trade_receivables", "current", current.tradeReceivables)
-  const priorReceivables = resolved(inputs, "trade_receivables", "prior", prior.tradeReceivables)
+  const receivables = round(current.tradeReceivables)
+  const priorReceivables = round(prior.tradeReceivables)
   const inventory = resolved(inputs, "inventory", "current")
   const priorInventory = resolved(inputs, "inventory", "prior")
-  const prepayments = resolved(inputs, "prepayments", "current", current.prepaymentBalance)
-  const priorPrepayments = resolved(inputs, "prepayments", "prior", prior.prepaymentBalance)
+  const prepayments = round(current.prepaymentBalance)
+  const priorPrepayments = round(prior.prepaymentBalance)
   const otherCurrentAssets = resolved(inputs, "other_current_assets", "current")
   const priorOtherCurrentAssets = resolved(inputs, "other_current_assets", "prior")
   const relatedPartyReceivable = resolved(inputs, "related_party_receivable", "current")
@@ -233,8 +227,8 @@ export function buildFinancialStatements(input: BuildFinancialStatementsInput): 
   const totalAssets = round(totalNonCurrentAssets + totalCurrentAssets)
   const priorTotalAssets = round(priorTotalNonCurrentAssets + priorTotalCurrentAssets)
 
-  const tradePayables = resolved(inputs, "trade_payables", "current", current.tradePayables)
-  const priorTradePayables = resolved(inputs, "trade_payables", "prior", prior.tradePayables)
+  const tradePayables = round(current.tradePayables)
+  const priorTradePayables = round(prior.tradePayables)
   const currentLoans = resolved(inputs, "current_loans", "current")
   const priorCurrentLoans = resolved(inputs, "current_loans", "prior")
   const nonCurrentLoans = resolved(inputs, "non_current_loans", "current")
