@@ -49,11 +49,11 @@ async function loadSources(orgId: string, startsOn: string, endsOn: string): Pro
       (SELECT COALESCE(SUM(tax_total),0) FROM documents
         WHERE organization_id=${orgId} AND type='invoice' AND status IN ('issued','paid','partially_paid')
           AND deleted_at IS NULL AND issue_date BETWEEN ${startsOn} AND ${endsOn}) AS sales_tax,
-      (SELECT COALESCE(SUM(subtotal),0) FROM purchase_invoices
-        WHERE organization_id=${orgId} AND status='included' AND deleted_at IS NULL
+      (SELECT COALESCE(SUM(CASE WHEN include_in_tax_return THEN subtotal ELSE total END),0) FROM purchase_invoices
+        WHERE organization_id=${orgId} AND accounting_status='recorded' AND deleted_at IS NULL
           AND invoice_date BETWEEN ${startsOn} AND ${endsOn}) AS tax_purchases,
       (SELECT COALESCE(SUM(tax_total),0) FROM purchase_invoices
-        WHERE organization_id=${orgId} AND status='included' AND deleted_at IS NULL
+        WHERE organization_id=${orgId} AND accounting_status='recorded' AND include_in_tax_return=TRUE AND deleted_at IS NULL
           AND invoice_date BETWEEN ${startsOn} AND ${endsOn}) AS purchase_tax,
       (SELECT COALESCE(SUM(amount),0) FROM expenses
         WHERE organization_id=${orgId} AND deleted_at IS NULL AND source_type='manual'
@@ -82,10 +82,14 @@ async function loadSources(orgId: string, startsOn: string, endsOn: string): Pro
         WHERE organization_id=${orgId} AND status='issued' AND source_document_id IS NULL AND receipt_date<=${endsOn}) AS standalone_advances,
       (SELECT COALESCE(SUM(amount),0) FROM expense_payments
         WHERE organization_id=${orgId} AND payment_date BETWEEN ${startsOn} AND ${endsOn}) AS expense_payments,
+      (SELECT COALESCE(SUM(amount),0) FROM purchase_invoice_payments
+        WHERE organization_id=${orgId} AND status='issued' AND payment_date BETWEEN ${startsOn} AND ${endsOn}) AS purchase_payments,
       ((SELECT COALESCE(SUM(amount),0) FROM customer_receipts
           WHERE organization_id=${orgId} AND status='issued' AND receipt_date<=${endsOn})
        - (SELECT COALESCE(SUM(amount),0) FROM expense_payments
-          WHERE organization_id=${orgId} AND payment_date<=${endsOn})) AS system_cash_balance,
+          WHERE organization_id=${orgId} AND payment_date<=${endsOn})
+       - (SELECT COALESCE(SUM(amount),0) FROM purchase_invoice_payments
+          WHERE organization_id=${orgId} AND status='issued' AND payment_date<=${endsOn})) AS system_cash_balance,
       (SELECT COALESCE(SUM(GREATEST(d.total-COALESCE((
           SELECT SUM(cr.amount) FROM customer_receipts cr
           WHERE cr.organization_id=${orgId} AND cr.source_document_id=d.id AND cr.status='issued' AND cr.receipt_date<=${endsOn}
@@ -93,20 +97,27 @@ async function loadSources(orgId: string, startsOn: string, endsOn: string): Pro
         FROM documents d
         WHERE d.organization_id=${orgId} AND d.type='invoice' AND d.status IN ('issued','paid','partially_paid')
           AND d.deleted_at IS NULL AND d.issue_date<=${endsOn}) AS trade_receivables,
-      (SELECT COALESCE(SUM(GREATEST(e.amount-COALESCE((
+      ((SELECT COALESCE(SUM(GREATEST(e.amount-COALESCE((
           SELECT SUM(ep.amount) FROM expense_payments ep
           WHERE ep.organization_id=${orgId} AND ep.expense_id=e.id AND ep.payment_date<=${endsOn}
         ),0),0)),0)
         FROM expenses e
-        WHERE e.organization_id=${orgId} AND e.deleted_at IS NULL AND e.expense_date<=${endsOn}) AS trade_payables,
+        WHERE e.organization_id=${orgId} AND e.deleted_at IS NULL AND e.source_type='manual' AND e.expense_date<=${endsOn})
+       + (SELECT COALESCE(SUM(GREATEST(pi.total-COALESCE((
+            SELECT SUM(pip.amount) FROM purchase_invoice_payments pip
+            WHERE pip.organization_id=${orgId} AND pip.purchase_invoice_id=pi.id
+              AND pip.status='issued' AND pip.payment_date<=${endsOn}
+          ),0),0)),0)
+          FROM purchase_invoices pi
+          WHERE pi.organization_id=${orgId} AND pi.accounting_status='recorded' AND pi.deleted_at IS NULL AND pi.invoice_date<=${endsOn})) AS trade_payables,
       (SELECT COUNT(*) FROM documents
         WHERE organization_id=${orgId} AND type='invoice' AND status IN ('issued','paid','partially_paid')
           AND deleted_at IS NULL AND issue_date BETWEEN ${startsOn} AND ${endsOn}) AS invoice_count,
       (SELECT COUNT(*) FROM purchase_invoices
-        WHERE organization_id=${orgId} AND status='included' AND deleted_at IS NULL
+        WHERE organization_id=${orgId} AND accounting_status='recorded' AND deleted_at IS NULL
           AND invoice_date BETWEEN ${startsOn} AND ${endsOn}) AS purchase_count,
       (SELECT COUNT(*) FROM expenses
-        WHERE organization_id=${orgId} AND deleted_at IS NULL
+        WHERE organization_id=${orgId} AND deleted_at IS NULL AND source_type='manual'
           AND expense_date BETWEEN ${startsOn} AND ${endsOn}) AS expense_count
   `
   const row = rows[0] ?? {}
@@ -126,6 +137,7 @@ async function loadSources(orgId: string, startsOn: string, endsOn: string): Pro
     receiptInflows: numberValue(row.receipt_inflows),
     standaloneAdvances: numberValue(row.standalone_advances),
     expensePayments: numberValue(row.expense_payments),
+    purchasePayments: numberValue(row.purchase_payments),
     systemCashBalance: numberValue(row.system_cash_balance),
     tradeReceivables: numberValue(row.trade_receivables),
     tradePayables: numberValue(row.trade_payables),

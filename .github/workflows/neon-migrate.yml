@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   migrate:
-    name: Apply migration 013
+    name: Apply migration 014
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,18 +47,24 @@ jobs:
           echo "::add-mask::${database_url}"
           echo "DATABASE_URL=${database_url}" >> "${GITHUB_ENV}"
 
-      - name: Apply financial statements migration
-        run: psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f apps/api/migrations/013_financial_statements.sql
+      - name: Apply purchase accounting and payments migration
+        run: psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f apps/api/migrations/014_purchase_accounting_and_payments.sql
 
-      - name: Verify financial statements schema
+      - name: Verify purchase accounting schema
         run: |
           psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           BEGIN
-            IF to_regclass('public.financial_statement_periods') IS NULL
-              OR to_regclass('public.financial_statement_inputs') IS NULL
-              OR to_regclass('public.financial_statement_snapshots') IS NULL THEN
-              RAISE EXCEPTION 'Financial statements migration verification failed';
+            IF to_regclass('public.purchase_invoice_payments') IS NULL
+              OR NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='purchase_invoices' AND column_name='accounting_status'
+              )
+              OR NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='purchase_invoices' AND column_name='paid_amount'
+              ) THEN
+              RAISE EXCEPTION 'Purchase accounting migration verification failed';
             END IF;
           END $$;
           SQL

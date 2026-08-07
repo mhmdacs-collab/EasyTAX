@@ -18,6 +18,7 @@ const emptySource = (): FinancialSourceTotals => ({
   receiptInflows: 0,
   standaloneAdvances: 0,
   expensePayments: 0,
+  purchasePayments: 0,
   systemCashBalance: 0,
   tradeReceivables: 0,
   tradePayables: 0,

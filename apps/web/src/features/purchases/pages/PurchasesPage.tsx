@@ -1,50 +1,163 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useState, type FormEvent } from "react"
 import { Link } from "@tanstack/react-router"
-import { Camera, FileDown } from "lucide-react"
-import { listTaxPurchases, setTaxPurchaseStatus, type TaxPurchase } from "@/lib/platform/api"
+import { Camera, CircleDollarSign, FileDown, History, X } from "lucide-react"
+import {
+  addTaxPurchasePayment,
+  cancelTaxPurchasePayment,
+  fetchTaxPurchase,
+  listTaxPurchases,
+  setTaxPurchaseStatus,
+  type TaxPurchase,
+  type TaxPurchasePaymentInput,
+} from "@/lib/platform/api"
 import { formatCurrency, formatDate } from "@/shared/utils"
 import { Button } from "@/shared/components/ui/button"
 import { Badge } from "@/shared/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card"
+import { Input } from "@/shared/components/ui/input"
+import { Label } from "@/shared/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select"
+import { Textarea } from "@/shared/components/ui/textarea"
+import { toast } from "@/shared/hooks/useToast"
+
+type PaymentMethod = TaxPurchasePaymentInput["payment_method"]
+const paymentMethods: Array<{ value: PaymentMethod; label: string }> = [
+  { value: "cash", label: "نقدي" },
+  { value: "bank_transfer", label: "تحويل بنكي" },
+  { value: "card", label: "شبكة" },
+  { value: "sadad", label: "سداد" },
+]
+const paymentMethodLabel = new Map(paymentMethods.map((method) => [method.value, method.label]))
+const normalizeIban = (value: string) => value.replace(/\s+/g, "").toUpperCase()
 
 export function PurchasesPage() {
   const [purchases, setPurchases] = useState<TaxPurchase[]>()
+  const [settling, setSettling] = useState<TaxPurchase>()
   const [error, setError] = useState("")
   const load = useCallback(async () => {
-    try { setPurchases((await listTaxPurchases()).purchases); setError("") }
-    catch (caught) { setError(caught instanceof Error ? caught.message : "تعذر تحميل فواتير المشتريات") }
+    try {
+      setPurchases((await listTaxPurchases()).purchases)
+      setError("")
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "تعذر تحميل فواتير المشتريات")
+    }
   }, [])
   useEffect(() => { void load() }, [load])
 
   async function changeStatus(purchase: TaxPurchase, status: TaxPurchase["status"]) {
-    const reason = status === "included" ? undefined : window.prompt(status === "cancelled" ? "سبب الإلغاء" : "سبب الاستبعاد")?.trim()
+    const reason = status === "included" ? undefined : window.prompt(status === "cancelled" ? "سبب الإلغاء" : "سبب الاستبعاد الضريبي")?.trim()
     if (status !== "included" && !reason) return
-    await setTaxPurchaseStatus(purchase.id, status, reason)
-    await load()
+    try {
+      await setTaxPurchaseStatus(purchase.id, status, reason)
+      await load()
+      toast({ title: status === "excluded" ? "تم استبعاد الفاتورة من الإقرار فقط" : status === "included" ? "تم إدراج الفاتورة في الإقرار" : "تم إلغاء الفاتورة", description: status === "excluded" ? "ستبقى الفاتورة ضمن المشتريات والقوائم المالية." : undefined, variant: "success" })
+    } catch (caught) {
+      toast({ title: "تعذر تحديث الفاتورة", description: caught instanceof Error ? caught.message : "حاول مرة أخرى", variant: "error" })
+    }
   }
 
   function downloadCsv() {
-    const rows = [["رقم EasyTAX","رقم فاتورة المورد","المورد","الرقم الضريبي","التاريخ","قبل الضريبة","الضريبة","الإجمالي","الحالة"],
-      ...(purchases ?? []).map((p) => [p.internal_number,p.invoice_number,p.supplier_name,p.supplier_vat_number,p.invoice_date,p.subtotal,p.tax_total,p.total,p.status])]
+    const rows = [["رقم EasyTAX", "رقم فاتورة المورد", "المورد", "الرقم الضريبي", "التاريخ", "قبل الضريبة", "الضريبة", "الإجمالي", "المدفوع", "المتبقي", "حالة الإقرار"],
+      ...(purchases ?? []).map((purchase) => [purchase.internal_number, purchase.invoice_number, purchase.supplier_name, purchase.supplier_vat_number, purchase.invoice_date, purchase.subtotal, purchase.tax_total, purchase.total, purchase.paid_amount, Math.max(0, Number(purchase.total) - Number(purchase.paid_amount)), purchase.status])]
     const csv = "\uFEFF" + rows.map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(",")).join("\n")
-    const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type:"text/csv;charset=utf-8" })); link.download = "كشف-المشتريات-الضريبية.csv"; link.click(); URL.revokeObjectURL(link.href)
+    const link = document.createElement("a")
+    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }))
+    link.download = "كشف-المشتريات-الضريبية.csv"
+    link.click()
+    URL.revokeObjectURL(link.href)
   }
 
-  return <div className="space-y-6 p-4 sm:p-6">
+  return <div className="space-y-6 p-4 sm:p-6" dir="rtl">
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <div><h1 className="text-2xl font-bold">فواتير المشتريات الضريبية</h1><p className="mt-1 text-sm text-muted-foreground">الفواتير المدخلة عبر QR والمشمولة في إعداد الإقرار الضريبي.</p></div>
-      <div className="flex gap-2"><Button variant="outline" onClick={downloadCsv} disabled={!purchases?.length}><FileDown className="me-2 size-4"/>تحميل الكشف</Button><Button asChild><Link to="/purchases/scan"><Camera className="me-2 size-4"/>مسح فاتورة</Link></Button></div>
+      <div><h1 className="text-2xl font-bold">فواتير المشتريات الضريبية</h1><p className="mt-1 text-sm text-muted-foreground">فواتير QR تدخل سجل المشتريات ماليًا، ويمكن تحديد إدراجها في الإقرار وتتبع سدادها بشكل مستقل.</p></div>
+      <div className="flex gap-2"><Button variant="outline" onClick={downloadCsv} disabled={!purchases?.length}><FileDown className="me-2 size-4" />تحميل الكشف</Button><Button asChild><Link to="/purchases/scan"><Camera className="me-2 size-4" />مسح فاتورة</Link></Button></div>
     </div>
+    <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm leading-6 text-sky-900"><strong>مهم:</strong> استبعاد الفاتورة من الإقرار يمنع خصم ضريبتها فقط، ولا يحذف تكلفة الشراء من القوائم المالية. الإلغاء هو الإجراء الوحيد الذي يلغيها محاسبيًا.</div>
     {error ? <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive">{error}</div> : null}
     <Card><CardHeader><CardTitle className="text-lg">سجل المشتريات</CardTitle></CardHeader><CardContent className="overflow-x-auto">
-      {!purchases ? <p className="py-10 text-center text-muted-foreground">جاري التحميل…</p> : purchases.length === 0 ? <div className="py-14 text-center"><Camera className="mx-auto mb-3 size-10 text-muted-foreground/40"/><p className="font-medium">لا توجد فواتير مشتريات ضريبية</p><p className="mt-1 text-sm text-muted-foreground">ابدأ بمسح QR من فاتورة المورد.</p></div> :
-      <table className="w-full min-w-[850px] text-sm"><thead><tr className="border-b text-muted-foreground"><th className="p-3 text-start">الرقم الداخلي</th><th className="p-3 text-start">المورد</th><th className="p-3 text-start">فاتورة المورد</th><th className="p-3 text-start">التاريخ</th><th className="p-3 text-end">الضريبة</th><th className="p-3 text-end">الإجمالي</th><th className="p-3 text-center">الحالة</th><th className="p-3"></th></tr></thead><tbody>{purchases.map((purchase) => <tr key={purchase.id} className="border-b last:border-0"><td className="p-3 font-mono font-semibold text-primary">{purchase.internal_number}</td><td className="p-3"><div className="font-medium">{purchase.supplier_name}</div><div className="text-xs text-muted-foreground" dir="ltr">{purchase.supplier_vat_number}</div></td><td className="p-3">{purchase.invoice_number}</td><td className="p-3" dir="ltr">{formatDate(purchase.invoice_date)}</td><td className="p-3 text-end tabular-nums">{formatCurrency(Number(purchase.tax_total))}</td><td className="p-3 text-end font-medium tabular-nums">{formatCurrency(Number(purchase.total))}</td><td className="p-3 text-center"><Status status={purchase.status}/></td><td className="p-3">{purchase.status==="cancelled"?<span className="text-xs text-muted-foreground">مغلقة</span>:<select className="rounded-md border bg-background px-2 py-1" value="" onChange={(event) => { const status=event.target.value; if(status==="included"||status==="excluded"||status==="cancelled") void changeStatus(purchase,status) }}><option value="">إجراء…</option>{purchase.status==="excluded"?<option value="included">إدراج في الإقرار</option>:<option value="excluded">استبعاد من الإقرار</option>}<option value="cancelled">إلغاء</option></select>}</td></tr>)}</tbody></table>}
+      {!purchases ? <p className="py-10 text-center text-muted-foreground">جاري التحميل…</p> : purchases.length === 0 ? <div className="py-14 text-center"><Camera className="mx-auto mb-3 size-10 text-muted-foreground/40" /><p className="font-medium">لا توجد فواتير مشتريات ضريبية</p><p className="mt-1 text-sm text-muted-foreground">ابدأ بمسح QR من فاتورة المورد.</p></div> :
+      <table className="w-full min-w-[1120px] text-sm"><thead><tr className="border-b text-muted-foreground"><th className="p-3 text-start">الرقم الداخلي</th><th className="p-3 text-start">المورد</th><th className="p-3 text-start">فاتورة المورد</th><th className="p-3 text-start">التاريخ</th><th className="p-3 text-end">الضريبة</th><th className="p-3 text-end">قيمة الفاتورة</th><th className="p-3 text-end">المدفوع</th><th className="p-3 text-end">المتبقي</th><th className="p-3 text-center">الإقرار</th><th className="p-3"></th></tr></thead>
+        <tbody>{purchases.map((purchase) => {
+          const remaining = Math.max(0, Number(purchase.total) - Number(purchase.paid_amount))
+          return <tr key={purchase.id} className="border-b last:border-0"><td className="p-3 font-mono font-semibold text-primary">{purchase.internal_number}</td><td className="p-3"><div className="font-medium">{purchase.supplier_name}</div><div className="text-xs text-muted-foreground" dir="ltr">{purchase.supplier_vat_number}</div></td><td className="p-3">{purchase.invoice_number}</td><td className="p-3" dir="ltr">{formatDate(purchase.invoice_date)}</td><td className="p-3 text-end tabular-nums">{formatCurrency(Number(purchase.tax_total))}</td><td className="p-3 text-end font-medium tabular-nums">{formatCurrency(Number(purchase.total))}</td><td className="p-3 text-end tabular-nums">{formatCurrency(Number(purchase.paid_amount))}</td><td className={`p-3 text-end font-bold tabular-nums ${remaining > 0 ? "text-destructive" : "text-emerald-700"}`}>{formatCurrency(remaining)}</td><td className="p-3 text-center"><TaxStatus status={purchase.status} /></td><td className="p-3"><div className="flex items-center justify-end gap-2"><Button size="sm" variant={remaining > 0 && purchase.status !== "cancelled" ? "default" : "outline"} disabled={purchase.status === "cancelled"} onClick={() => { setSettling(purchase) }}><CircleDollarSign className="size-4" />{remaining > 0 ? "سداد" : "الدفعات"}</Button>{purchase.status === "cancelled" ? <span className="text-xs text-muted-foreground">مغلقة</span> : <select aria-label="إجراء على فاتورة المشتريات" className="rounded-md border bg-background px-2 py-1" value="" onChange={(event) => { const status = event.target.value; if (status === "included" || status === "excluded" || status === "cancelled") void changeStatus(purchase, status) }}><option value="">إجراء…</option>{purchase.status === "excluded" ? <option value="included">إدراج في الإقرار</option> : <option value="excluded">استبعاد من الإقرار</option>}<option value="cancelled">إلغاء الفاتورة</option></select>}</div></td></tr>
+        })}</tbody>
+      </table>}
     </CardContent></Card>
+    {settling ? <PurchasePaymentDialog purchase={settling} onClose={() => { setSettling(undefined) }} onChanged={async () => { await load() }} /> : null}
   </div>
 }
 
-function Status({status}:{status:TaxPurchase["status"]}) {
-  if(status==="included") return <Badge variant="success">مشمولة</Badge>
-  if(status==="excluded") return <Badge variant="warning">مستبعدة</Badge>
+function TaxStatus({ status }: { status: TaxPurchase["status"] }) {
+  if (status === "included") return <Badge variant="success">داخل الإقرار</Badge>
+  if (status === "excluded") return <Badge variant="warning">مستبعد ضريبيًا</Badge>
   return <Badge variant="destructive">ملغاة</Badge>
+}
+
+function PurchasePaymentDialog({ purchase, onClose, onChanged }: { purchase: TaxPurchase; onClose: () => void; onChanged: () => Promise<void> }) {
+  const [details, setDetails] = useState(purchase)
+  const [amount, setAmount] = useState(String(Math.max(0, Number(purchase.total) - Number(purchase.paid_amount))))
+  const [method, setMethod] = useState<PaymentMethod>(purchase.last_payment_method ?? "bank_transfer")
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  const [iban, setIban] = useState(purchase.beneficiary_iban ?? "")
+  const [reference, setReference] = useState("")
+  const [notes, setNotes] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  const refresh = useCallback(async () => {
+    const result = await fetchTaxPurchase(purchase.id)
+    setDetails(result.purchase)
+    setAmount(String(Math.max(0, Number(result.purchase.total) - Number(result.purchase.paid_amount))))
+  }, [purchase.id])
+  useEffect(() => { void refresh() }, [refresh])
+
+  const remaining = Math.max(0, Number(details.total) - Number(details.paid_amount))
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    setSaving(true)
+    try {
+      await addTaxPurchasePayment(details.id, { amount: Number(amount), payment_method: method, payment_date: date, beneficiary_name: details.supplier_name, beneficiary_iban: iban.trim() ? normalizeIban(iban) : undefined, reference_number: reference.trim() || undefined, notes: notes.trim() || undefined })
+      await refresh()
+      await onChanged()
+      setReference("")
+      setNotes("")
+      toast({ title: "تم تسجيل دفعة المشتريات", description: "حُدّث المتبقي وذمم الموردين والتدفق النقدي.", variant: "success" })
+    } catch (caught) {
+      toast({ title: "تعذر تسجيل الدفعة", description: caught instanceof Error ? caught.message : "راجع البيانات", variant: "error" })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const cancelPayment = async (paymentId: string) => {
+    const reason = window.prompt("سبب عكس الدفعة")?.trim()
+    if (!reason) return
+    try {
+      await cancelTaxPurchasePayment(details.id, paymentId, reason)
+      await refresh()
+      await onChanged()
+      toast({ title: "تم عكس الدفعة", description: "أعيد المبلغ إلى رصيد المورد مع الاحتفاظ بسجل المراجعة.", variant: "success" })
+    } catch (caught) {
+      toast({ title: "تعذر عكس الدفعة", description: caught instanceof Error ? caught.message : "حاول مرة أخرى", variant: "error" })
+    }
+  }
+
+  return <div className="fixed inset-0 z-50 overflow-y-auto bg-black/45 p-4" role="dialog" aria-modal="true" aria-labelledby="purchase-payment-title">
+    <div className="mx-auto my-6 max-w-2xl space-y-5 rounded-xl bg-background p-5 shadow-xl">
+      <div className="flex items-start justify-between gap-4"><div><h2 id="purchase-payment-title" className="text-xl font-bold">سداد فاتورة مشتريات</h2><p className="mt-1 text-sm text-muted-foreground">{details.supplier_name} — {details.internal_number}</p></div><Button aria-label="إغلاق" type="button" size="icon" variant="ghost" onClick={onClose}><X className="size-4" /></Button></div>
+      <div className="grid gap-3 sm:grid-cols-3"><Summary label="قيمة الفاتورة" value={Number(details.total)} /><Summary label="إجمالي المدفوع" value={Number(details.paid_amount)} /><Summary label="المتبقي" value={remaining} danger={remaining > 0} /></div>
+      {remaining > 0 && details.status !== "cancelled" ? <form className="space-y-4 rounded-xl border p-4" onSubmit={(event) => { void submit(event) }}>
+        <div className="grid gap-4 sm:grid-cols-2"><div><Label htmlFor="purchase-payment-amount">مبلغ الدفعة *</Label><Input id="purchase-payment-amount" className="mt-1" type="number" min="0.01" max={remaining} step="0.01" dir="ltr" value={amount} onChange={(event) => { setAmount(event.target.value) }} required /></div><div><Label htmlFor="purchase-payment-date">تاريخ السداد *</Label><Input id="purchase-payment-date" className="mt-1" type="date" value={date} onChange={(event) => { setDate(event.target.value) }} required /></div></div>
+        <div><Label>طريقة السداد *</Label><Select value={method} onValueChange={(value) => { setMethod(value as PaymentMethod) }}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent>{paymentMethods.map((paymentMethod) => <SelectItem key={paymentMethod.value} value={paymentMethod.value}>{paymentMethod.label}</SelectItem>)}</SelectContent></Select></div>
+        <div><Label htmlFor="purchase-payment-iban">آيبان المورد (اختياري)</Label><Input id="purchase-payment-iban" className="mt-1" dir="ltr" value={iban} onChange={(event) => { setIban(event.target.value) }} placeholder="SA0000000000000000000000" /><p className="mt-1 text-xs text-muted-foreground">يمكن حفظه للرجوع إليه عند تحويل دفعة لاحقة، ولا يصبح إلزاميًا بسبب اختيار التحويل البنكي.</p></div>
+        <div><Label htmlFor="purchase-payment-reference">رقم المرجع{method === "sadad" ? " *" : ""}</Label><Input id="purchase-payment-reference" className="mt-1" value={reference} onChange={(event) => { setReference(event.target.value) }} required={method === "sadad"} /></div>
+        <div><Label htmlFor="purchase-payment-notes">ملاحظات</Label><Textarea id="purchase-payment-notes" className="mt-1" value={notes} onChange={(event) => { setNotes(event.target.value) }} /></div>
+        <div className="flex justify-end"><Button type="submit" loading={saving}>تسجيل الدفعة</Button></div>
+      </form> : <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-900">الفاتورة مسددة بالكامل. يمكنك مراجعة الدفعات أو عكس دفعة خاطئة أدناه.</div>}
+      <section className="space-y-2"><h3 className="flex items-center gap-2 font-semibold"><History className="size-4" />سجل الدفعات</h3>{details.payments?.length ? details.payments.map((payment) => <div key={payment.id} className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm ${payment.status === "cancelled" ? "opacity-60" : ""}`}><div><p className="font-medium">{formatCurrency(Number(payment.amount))} — {paymentMethodLabel.get(payment.payment_method)}</p><p className="text-xs text-muted-foreground" dir="ltr">{payment.payment_date}{payment.reference_number ? ` · ${payment.reference_number}` : ""}</p></div>{payment.status === "cancelled" ? <Badge variant="outline">معكوسة</Badge> : <Button type="button" size="sm" variant="outline" onClick={() => { void cancelPayment(payment.id) }}>عكس الدفعة</Button>}</div>) : <p className="rounded-lg bg-muted/30 p-4 text-center text-sm text-muted-foreground">لا توجد دفعات مسجلة.</p>}</section>
+    </div>
+  </div>
+}
+
+function Summary({ label, value, danger }: { label: string; value: number; danger?: boolean }) {
+  return <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">{label}</p><p className={`mt-1 font-bold tabular-nums ${danger ? "text-destructive" : ""}`} dir="ltr">{formatCurrency(value)}</p></div>
 }

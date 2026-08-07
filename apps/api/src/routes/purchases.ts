@@ -1,10 +1,14 @@
+import { randomUUID } from "node:crypto"
 import { Hono } from "hono"
 import { z } from "zod"
 import { zValidator } from "@hono/zod-validator"
 import { auth } from "../lib/auth"
 import { sql, withTransaction } from "../lib/db"
+import { applyExpensePayment, reverseRecordedPayment } from "../lib/expensePayments"
 
 export const purchasesRouter = new Hono()
+const paymentMethods = ["cash", "bank_transfer", "card", "sadad"] as const
+const ibanPattern = /^SA\d{22}$/
 
 function invoiceDateInRiyadh(timestamp: string) {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(timestamp))
@@ -42,6 +46,7 @@ purchasesRouter.get("/", async (c) => {
   const purchases = await sql`
     SELECT id,internal_number,supplier_name,supplier_vat_number,invoice_number,invoice_date,invoice_timestamp,
            subtotal,tax_total,total,status,exclusion_reason,cancelled_at,cancellation_reason,
+           accounting_status,payment_status,paid_amount,last_payment_method,beneficiary_iban,
            duplicate_override,duplicate_of_id,created_at
     FROM purchase_invoices
     WHERE organization_id=${orgId} AND deleted_at IS NULL
@@ -52,7 +57,9 @@ purchasesRouter.get("/", async (c) => {
 purchasesRouter.get("/:id", async (c) => {
   const orgId = await organizationId(c.req.raw.headers)
   if (!orgId) return c.json({ error: "غير مصرح" }, 401)
-  const rows = await sql`SELECT * FROM purchase_invoices WHERE id=${c.req.param("id")} AND organization_id=${orgId} AND deleted_at IS NULL LIMIT 1`
+  const rows = await sql`SELECT pi.*,
+    COALESCE((SELECT json_agg(pip ORDER BY pip.payment_date,pip.created_at) FROM purchase_invoice_payments pip WHERE pip.purchase_invoice_id=pi.id),'[]'::json) AS payments
+    FROM purchase_invoices pi WHERE pi.id=${c.req.param("id")} AND pi.organization_id=${orgId} AND pi.deleted_at IS NULL LIMIT 1`
   return rows[0] ? c.json({ purchase: rows[0] }) : c.json({ error: "فاتورة المشتريات غير موجودة" }, 404)
 })
 
@@ -108,7 +115,9 @@ purchasesRouter.patch("/:id/status", zValidator("json", statusSchema), async (c)
     const current = await client.query("SELECT * FROM purchase_invoices WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL FOR UPDATE", [c.req.param("id"), orgId])
     if (!current.rows[0]) return null
     if (current.rows[0].status === "cancelled") return { error: "CANCELLED_LOCKED" as const }
+    if (body.status === "cancelled" && Number(current.rows[0].paid_amount) > 0) return { error: "ACTIVE_PAYMENTS" as const }
     const updated = await client.query(`UPDATE purchase_invoices SET status=$1,include_in_tax_return=$2,
+      accounting_status=CASE WHEN $1='cancelled' THEN 'cancelled' ELSE accounting_status END,
       exclusion_reason=$3,cancelled_at=CASE WHEN $1='cancelled' THEN NOW() ELSE NULL END,
       cancellation_reason=CASE WHEN $1='cancelled' THEN $3 ELSE NULL END,updated_at=NOW()
       WHERE id=$4 RETURNING *`, [body.status, body.status === "included", body.status === "included" ? null : body.reason, c.req.param("id")])
@@ -116,6 +125,87 @@ purchasesRouter.patch("/:id/status", zValidator("json", statusSchema), async (c)
     return updated.rows[0]
   })
   if (!result) return c.json({ error: "فاتورة المشتريات غير موجودة" }, 404)
-  if ("error" in result) return c.json({ error: "الفاتورة الملغاة مغلقة ولا يمكن إعادتها إلى الإقرار" }, 409)
+  if ("error" in result) return c.json({ error: result.error === "ACTIVE_PAYMENTS" ? "ألغِ دفعات فاتورة المشتريات أولًا قبل إلغائها" : "الفاتورة الملغاة مغلقة ولا يمكن إعادتها إلى الإقرار" }, 409)
   return c.json({ purchase: result })
+})
+
+const paymentSchema = z.object({
+  amount: z.coerce.number().positive(),
+  payment_method: z.enum(paymentMethods),
+  payment_date: z.iso.date(),
+  beneficiary_name: z.string().trim().max(300).optional(),
+  beneficiary_iban: z.preprocess(
+    (value) => typeof value === "string" ? value.replace(/\s+/g, "").toUpperCase() : value,
+    z.union([z.string().regex(ibanPattern, "رقم الآيبان السعودي يجب أن يبدأ بـ SA ويتكون من 24 خانة"), z.literal(""), z.undefined()]),
+  ),
+  reference_number: z.string().trim().max(120).optional(),
+  notes: z.string().trim().max(500).optional(),
+}).superRefine((value, context) => {
+  if (value.payment_method === "sadad" && !value.reference_number) context.addIssue({ code: "custom", path: ["reference_number"], message: "رقم سداد أو رقم الفاتورة مطلوب" })
+})
+
+purchasesRouter.post("/:id/payments", zValidator("json", paymentSchema, (result, c) => {
+  if (!result.success) return c.json({ error: result.error.issues[0]?.message ?? "راجع بيانات السداد" }, 400)
+  return undefined
+}), async (c) => {
+  const orgId = await organizationId(c.req.raw.headers)
+  if (!orgId) return c.json({ error: "غير مصرح" }, 401)
+  const input = c.req.valid("json")
+  const result = await withTransaction(async (client) => {
+    const current = await client.query("SELECT * FROM purchase_invoices WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL FOR UPDATE", [c.req.param("id"), orgId])
+    const purchase = current.rows[0]
+    if (!purchase) return { error: "NOT_FOUND" as const }
+    if (purchase.accounting_status === "cancelled") return { error: "CANCELLED" as const }
+    const applied = applyExpensePayment(Number(purchase.total), Number(purchase.paid_amount), input.amount)
+    if (!applied.ok) return { error: applied.reason, remaining: applied.remaining }
+    const beneficiaryName = input.beneficiary_name || String(purchase.supplier_name || "المورد")
+    const paymentId = randomUUID()
+    const inserted = await client.query(`INSERT INTO purchase_invoice_payments(
+      id,organization_id,purchase_invoice_id,payment_date,amount,payment_method,beneficiary_name,beneficiary_iban,reference_number,notes
+    ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`, [
+      paymentId, orgId, purchase.id, input.payment_date, input.amount, input.payment_method, beneficiaryName,
+      input.beneficiary_iban || null, input.reference_number || null, input.notes || null,
+    ])
+    const updated = await client.query(`UPDATE purchase_invoices SET
+      paid_amount=$1,payment_status=$2,last_payment_method=$3,beneficiary_iban=COALESCE($4,beneficiary_iban),updated_at=NOW()
+      WHERE id=$5 RETURNING *`, [applied.paid, applied.status, input.payment_method, input.beneficiary_iban || null, purchase.id])
+    await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,snapshot) VALUES($1,'purchase_payment',$2,'payment_recorded',$3)", [orgId, paymentId, JSON.stringify(inserted.rows[0])])
+    return { purchase: updated.rows[0], payment: inserted.rows[0] }
+  })
+  if ("error" in result) {
+    if (result.error === "NOT_FOUND") return c.json({ error: "فاتورة المشتريات غير موجودة" }, 404)
+    if (result.error === "CANCELLED") return c.json({ error: "لا يمكن سداد فاتورة ملغاة" }, 409)
+    if (result.error === "ALREADY_PAID") return c.json({ error: "الفاتورة مدفوعة بالكامل" }, 409)
+    if (result.error === "INVALID_AMOUNT") return c.json({ error: `المبلغ يتجاوز المتبقي وهو ${result.remaining.toFixed(2)} ر.س` }, 400)
+    return c.json({ error: "تعذر تسجيل الدفعة" }, 400)
+  }
+  return c.json(result, 201)
+})
+
+const cancelPaymentSchema = z.object({ reason: z.string().trim().min(3).max(500) })
+
+purchasesRouter.post("/:id/payments/:paymentId/cancel", zValidator("json", cancelPaymentSchema), async (c) => {
+  const orgId = await organizationId(c.req.raw.headers)
+  if (!orgId) return c.json({ error: "غير مصرح" }, 401)
+  const reason = c.req.valid("json").reason
+  const result = await withTransaction(async (client) => {
+    const current = await client.query("SELECT * FROM purchase_invoices WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL FOR UPDATE", [c.req.param("id"), orgId])
+    const purchase = current.rows[0]
+    if (!purchase) return { error: "NOT_FOUND" as const }
+    const payments = await client.query("SELECT * FROM purchase_invoice_payments WHERE id=$1 AND purchase_invoice_id=$2 AND organization_id=$3 FOR UPDATE", [c.req.param("paymentId"), purchase.id, orgId])
+    const payment = payments.rows[0]
+    if (!payment) return { error: "PAYMENT_NOT_FOUND" as const }
+    if (payment.status === "cancelled") return { error: "ALREADY_CANCELLED" as const }
+    const reversal = reverseRecordedPayment(Number(purchase.total), Number(purchase.paid_amount), Number(payment.amount))
+    if (!reversal.ok) return { error: "INVALID_REVERSAL" as const }
+    const cancelled = await client.query("UPDATE purchase_invoice_payments SET status='cancelled',cancelled_at=NOW(),cancellation_reason=$1,updated_at=NOW() WHERE id=$2 RETURNING *", [reason, payment.id])
+    const updated = await client.query("UPDATE purchase_invoices SET paid_amount=$1,payment_status=$2,updated_at=NOW() WHERE id=$3 RETURNING *", [reversal.paid, reversal.status, purchase.id])
+    await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,reason,snapshot) VALUES($1,'purchase_payment',$2,'payment_cancelled',$3,$4)", [orgId, payment.id, reason, JSON.stringify(cancelled.rows[0])])
+    return { purchase: updated.rows[0], payment: cancelled.rows[0] }
+  })
+  if ("error" in result) {
+    const messages = { NOT_FOUND: "فاتورة المشتريات غير موجودة", PAYMENT_NOT_FOUND: "دفعة المشتريات غير موجودة", ALREADY_CANCELLED: "الدفعة ملغاة مسبقًا", INVALID_REVERSAL: "تعذر عكس الدفعة بسبب عدم تطابق رصيدها" } as const
+    return c.json({ error: messages[result.error] }, result.error === "NOT_FOUND" || result.error === "PAYMENT_NOT_FOUND" ? 404 : 409)
+  }
+  return c.json(result)
 })

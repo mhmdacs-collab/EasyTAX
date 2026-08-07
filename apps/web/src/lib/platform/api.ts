@@ -114,7 +114,10 @@ export type TaxPurchase = {
   id:string; internal_number:string; supplier_name:string; supplier_vat_number:string; invoice_number:string
   invoice_date:string; invoice_timestamp:string; subtotal:number|string; tax_total:number|string; total:number|string
   status:"included"|"excluded"|"cancelled"; exclusion_reason?:string; cancellation_reason?:string
+  accounting_status:"recorded"|"cancelled"; payment_status:"unpaid"|"partially_paid"|"paid"; paid_amount:number|string
+  last_payment_method?:"cash"|"bank_transfer"|"card"|"sadad"; beneficiary_iban?:string
   duplicate_override:boolean; duplicate_of_id?:string; created_at:string
+  payments?:Array<{id:string;payment_date:string;amount:number|string;payment_method:"cash"|"bank_transfer"|"card"|"sadad";beneficiary_name:string;beneficiary_iban?:string;reference_number?:string;notes?:string;status:"issued"|"cancelled";cancellation_reason?:string}>
 }
 export type TaxPurchaseInput = {
   supplier_name:string; supplier_vat_number:string; invoice_number:string; invoice_timestamp:string
@@ -125,6 +128,9 @@ export const listTaxPurchases = () => request<{purchases:TaxPurchase[]}>("/purch
 export const fetchTaxPurchase = (id:string) => request<{purchase:TaxPurchase}>(`/purchases/${id}`)
 export const createTaxPurchase = (input:TaxPurchaseInput) => request<{purchase:TaxPurchase}>("/purchases",{method:"POST",body:JSON.stringify(input)})
 export const setTaxPurchaseStatus = (id:string,status:TaxPurchase["status"],reason?:string) => request<{purchase:TaxPurchase}>(`/purchases/${id}/status`,{method:"PATCH",body:JSON.stringify({status,reason})})
+export type TaxPurchasePaymentInput = {amount:number;payment_method:"cash"|"bank_transfer"|"card"|"sadad";payment_date:string;beneficiary_name?:string;beneficiary_iban?:string;reference_number?:string;notes?:string}
+export const addTaxPurchasePayment = (id:string,input:TaxPurchasePaymentInput) => request<{purchase:TaxPurchase;payment:NonNullable<TaxPurchase["payments"]>[number]}>(`/purchases/${id}/payments`,{method:"POST",body:JSON.stringify(input)})
+export const cancelTaxPurchasePayment = (id:string,paymentId:string,reason:string) => request<{purchase:TaxPurchase;payment:NonNullable<TaxPurchase["payments"]>[number]}>(`/purchases/${id}/payments/${paymentId}/cancel`,{method:"POST",body:JSON.stringify({reason})})
 
 export type TaxReturnSummary = {
   period:{year:number;quarter:number;starts_on:string;ends_on:string;deadline:string;status:"open"|"awaiting_review";days_remaining:number}
@@ -172,7 +178,7 @@ export type FinancialSourceTotals = {
   revenue:number; invoiceTotal:number; salesTax:number; taxPurchases:number; purchaseTax:number
   directCosts:number; employeeExpenses:number; operatingExpenses:number; otherExpenses:number
   fixedAssetAdditions:number; fixedAssetBalance:number; prepaymentBalance:number; receiptInflows:number
-  standaloneAdvances:number; expensePayments:number; systemCashBalance:number; tradeReceivables:number
+  standaloneAdvances:number; expensePayments:number; purchasePayments:number; systemCashBalance:number; tradeReceivables:number
   tradePayables:number; invoiceCount:number; purchaseCount:number; expenseCount:number
 }
 export type FinancialStatementReport = {
