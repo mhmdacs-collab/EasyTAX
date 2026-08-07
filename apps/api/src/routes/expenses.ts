@@ -11,6 +11,7 @@ export const expensesRouter = new Hono()
 const categories = ["work_costs", "payroll", "rent_utilities", "vehicles_transport", "admin_marketing_professional", "asset_equipment", "other"] as const
 const financialClasses = ["direct_cost", "operating_expense", "employee_expense", "fixed_asset", "prepayment", "other_expense"] as const
 const paymentMethods = ["cash", "bank_transfer", "card", "sadad"] as const
+const ibanPattern = /^SA\d{22}$/
 
 async function organizationId(headers: Headers) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -30,6 +31,7 @@ const expenseSchema = z.object({
   paid_amount: z.coerce.number().min(0),
   payment_method: z.enum(paymentMethods).optional(),
   supplier_name: z.string().trim().max(200).optional(),
+  beneficiary_iban: z.string().trim().toUpperCase().regex(ibanPattern, "رقم الآيبان السعودي يجب أن يبدأ بـ SA ويتكون من 24 خانة").optional().or(z.literal("")),
   reference_number: z.string().trim().max(100).optional(),
   project_reference: z.string().trim().max(100).optional(),
   notes: z.string().trim().max(1000).optional(),
@@ -38,7 +40,10 @@ const expenseSchema = z.object({
   if (value.payment_status === "paid" && value.paid_amount !== value.amount) ctx.addIssue({ code: "custom", path: ["paid_amount"], message: "المصروف المدفوع يجب أن يكون مسددًا بالكامل" })
   if (value.payment_status === "unpaid" && value.paid_amount !== 0) ctx.addIssue({ code: "custom", path: ["paid_amount"], message: "المصروف غير المدفوع يجب أن تكون دفعاته صفرًا" })
   if (value.payment_status !== "unpaid" && !value.payment_method) ctx.addIssue({ code: "custom", path: ["payment_method"], message: "اختر طريقة الدفع" })
+  if (value.payment_status !== "unpaid" && !value.supplier_name) ctx.addIssue({ code: "custom", path: ["supplier_name"], message: "اسم المستفيد مطلوب عند تسجيل دفعة" })
   if (value.payment_status === "partially_paid" && (value.paid_amount <= 0 || value.paid_amount >= value.amount)) ctx.addIssue({ code: "custom", path: ["paid_amount"], message: "أدخل دفعة أقل من إجمالي المصروف" })
+  if (value.payment_method === "bank_transfer" && !value.beneficiary_iban) ctx.addIssue({ code: "custom", path: ["beneficiary_iban"], message: "رقم آيبان المستفيد مطلوب للتحويل البنكي" })
+  if (value.payment_method === "sadad" && !value.reference_number) ctx.addIssue({ code: "custom", path: ["reference_number"], message: "رقم سداد أو رقم الفاتورة مطلوب" })
 })
 
 expensesRouter.get("/", async (c) => {
@@ -69,15 +74,15 @@ expensesRouter.post("/", zValidator("json", expenseSchema), async (c) => {
   const expense = await withTransaction(async (client) => {
     const result = await client.query(`INSERT INTO expenses (
       id, organization_id, expense_date, category, financial_class, description, amount,
-      payment_status, paid_amount, payment_method, supplier_name, reference_number, project_reference, notes
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`, [
+      payment_status, paid_amount, payment_method, supplier_name, beneficiary_iban, reference_number, project_reference, notes
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`, [
       id, orgId, input.expense_date, input.category, input.financial_class, input.description, input.amount,
       input.payment_status, input.paid_amount, input.payment_method ?? null, input.supplier_name || null,
-      input.reference_number || null, input.project_reference || null, input.notes || null,
+      input.beneficiary_iban || null, input.reference_number || null, input.project_reference || null, input.notes || null,
     ])
     if (input.paid_amount > 0 && input.payment_method) await client.query(
-      "INSERT INTO expense_payments(id,organization_id,expense_id,payment_date,amount,payment_method,reference_number) VALUES($1,$2,$3,$4,$5,$6,$7)",
-      [randomUUID(), orgId, id, input.expense_date, input.paid_amount, input.payment_method, input.reference_number || null],
+      "INSERT INTO expense_payments(id,organization_id,expense_id,payment_date,amount,payment_method,beneficiary_name,beneficiary_iban,reference_number) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+      [randomUUID(), orgId, id, input.expense_date, input.paid_amount, input.payment_method, input.supplier_name || null, input.beneficiary_iban || null, input.reference_number || null],
     )
     return result.rows[0]
   })
@@ -89,7 +94,12 @@ const paymentSchema = z.object({
   payment_method: z.enum(paymentMethods),
   payment_date: z.iso.date(),
   reference_number: z.string().trim().max(100).optional(),
+  beneficiary_name: z.string().trim().min(1).max(200),
+  beneficiary_iban: z.string().trim().toUpperCase().regex(ibanPattern, "رقم الآيبان السعودي يجب أن يبدأ بـ SA ويتكون من 24 خانة").optional().or(z.literal("")),
   notes: z.string().trim().max(500).optional(),
+}).superRefine((value, ctx) => {
+  if (value.payment_method === "bank_transfer" && !value.beneficiary_iban) ctx.addIssue({ code: "custom", path: ["beneficiary_iban"], message: "رقم آيبان المستفيد مطلوب للتحويل البنكي" })
+  if (value.payment_method === "sadad" && !value.reference_number) ctx.addIssue({ code: "custom", path: ["reference_number"], message: "رقم سداد أو رقم الفاتورة مطلوب" })
 })
 
 expensesRouter.post("/:id/payments", zValidator("json", paymentSchema), async (c) => {
@@ -102,8 +112,8 @@ expensesRouter.post("/:id/payments", zValidator("json", paymentSchema), async (c
     if (!expense) return { error: "NOT_FOUND" as const }
     const payment = applyExpensePayment(Number(expense.amount), Number(expense.paid_amount), input.amount)
     if (!payment.ok) return { error: payment.reason, remaining: payment.remaining }
-    await client.query("INSERT INTO expense_payments(id,organization_id,expense_id,payment_date,amount,payment_method,reference_number,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", [randomUUID(), orgId, expense.id, input.payment_date, input.amount, input.payment_method, input.reference_number || null, input.notes || null])
-    const updated = await client.query("UPDATE expenses SET paid_amount=$1,payment_status=$2,payment_method=$3,updated_at=NOW() WHERE id=$4 RETURNING *", [payment.paid, payment.status, input.payment_method, expense.id])
+    await client.query("INSERT INTO expense_payments(id,organization_id,expense_id,payment_date,amount,payment_method,beneficiary_name,beneficiary_iban,reference_number,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", [randomUUID(), orgId, expense.id, input.payment_date, input.amount, input.payment_method, input.beneficiary_name, input.beneficiary_iban || null, input.reference_number || null, input.notes || null])
+    const updated = await client.query("UPDATE expenses SET paid_amount=$1,payment_status=$2,payment_method=$3,supplier_name=$4,beneficiary_iban=COALESCE($5,beneficiary_iban),updated_at=NOW() WHERE id=$6 RETURNING *", [payment.paid, payment.status, input.payment_method, input.beneficiary_name, input.beneficiary_iban || null, expense.id])
     return { expense: updated.rows[0] }
   })
   if ("error" in result) {
