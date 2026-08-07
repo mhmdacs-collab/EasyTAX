@@ -1,0 +1,64 @@
+name: Neon migration
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [mhmdacs-collab-phase-0-project-foundation]
+    paths: [.github/workflows/neon-migrate.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    name: Apply migration 013
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve primary Neon connection
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          authorization="Authorization: Bearer ${NEON_API_KEY}"
+          api="https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}"
+
+          branches="$(curl --fail --silent --show-error -H "${authorization}" "${api}/branches")"
+          branch_id="$(jq -r '.branches[] | select(.primary == true) | .id' <<<"${branches}" | head -n 1)"
+          test -n "${branch_id}"
+
+          databases="$(curl --fail --silent --show-error -H "${authorization}" "${api}/branches/${branch_id}/databases")"
+          database_name="$(jq -r '([.databases[] | select(.name == "neondb")][0] // .databases[0]).name' <<<"${databases}")"
+
+          roles="$(curl --fail --silent --show-error -H "${authorization}" "${api}/branches/${branch_id}/roles")"
+          role_name="$(jq -r '([.roles[] | select(.name | endswith("_owner"))][0] // .roles[0]).name' <<<"${roles}")"
+
+          connection="$(curl --fail --silent --show-error -G -H "${authorization}" \
+            --data-urlencode "branch_id=${branch_id}" \
+            --data-urlencode "database_name=${database_name}" \
+            --data-urlencode "role_name=${role_name}" \
+            --data-urlencode "pooled=false" \
+            "${api}/connection_uri")"
+          database_url="$(jq -r '.uri' <<<"${connection}")"
+          test -n "${database_url}"
+          test "${database_url}" != "null"
+          echo "::add-mask::${database_url}"
+          echo "DATABASE_URL=${database_url}" >> "${GITHUB_ENV}"
+
+      - name: Apply financial statements migration
+        run: psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f apps/api/migrations/013_financial_statements.sql
+
+      - name: Verify financial statements schema
+        run: |
+          psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF to_regclass('public.financial_statement_periods') IS NULL
+              OR to_regclass('public.financial_statement_inputs') IS NULL
+              OR to_regclass('public.financial_statement_snapshots') IS NULL THEN
+              RAISE EXCEPTION 'Financial statements migration verification failed';
+            END IF;
+          END $$;
+          SQL

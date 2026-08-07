@@ -32,6 +32,7 @@
         "clsx": "^2.1.0",
         "dexie": "^4.0.0",
         "dexie-react-hooks": "^1.1.0",
+        "docx": "^9.5.1",
         "html2canvas": "^1.4.1",
         "jspdf": "^4.2.1",
         "lucide-react": "^0.446.0",
