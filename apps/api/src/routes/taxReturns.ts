@@ -35,11 +35,11 @@ taxReturnsRouter.get("/current", async (c) => {
         FROM documents WHERE organization_id=${orgId} AND type='invoice' AND status IN ('issued','paid','partially_paid')
         AND deleted_at IS NULL AND issue_date BETWEEN ${startsOn} AND ${endsOn}`,
     sql`SELECT COALESCE(SUM(total),0) total,COALESCE(SUM(subtotal),0) taxable,COALESCE(SUM(tax_total),0) tax
-        FROM purchase_invoices WHERE organization_id=${orgId} AND status='included' AND include_in_tax_return=TRUE
+        FROM purchase_invoices WHERE organization_id=${orgId} AND accounting_status='recorded' AND status='included' AND include_in_tax_return=TRUE
         AND deleted_at IS NULL AND invoice_date BETWEEN ${startsOn} AND ${endsOn}`,
     sql`SELECT
         (SELECT COUNT(*) FROM documents WHERE organization_id=${orgId} AND type='invoice' AND status IN ('issued','paid','partially_paid') AND deleted_at IS NULL AND issue_date BETWEEN ${startsOn} AND ${endsOn}) sales_count,
-        (SELECT COUNT(*) FROM purchase_invoices WHERE organization_id=${orgId} AND status='included' AND deleted_at IS NULL AND invoice_date BETWEEN ${startsOn} AND ${endsOn}) purchases_count`,
+        (SELECT COUNT(*) FROM purchase_invoices WHERE organization_id=${orgId} AND accounting_status='recorded' AND status='included' AND include_in_tax_return=TRUE AND deleted_at IS NULL AND invoice_date BETWEEN ${startsOn} AND ${endsOn}) purchases_count`,
   ])
   const organizationRow = organization[0] ?? { id: orgId, business_name: "", vat_number: "" }
   const salesRow = sales[0] ?? { total: 0, taxable: 0, tax: 0 }

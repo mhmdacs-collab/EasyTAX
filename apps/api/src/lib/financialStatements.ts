@@ -89,6 +89,7 @@ export type FinancialSourceTotals = {
   receiptInflows: number
   standaloneAdvances: number
   expensePayments: number
+  purchasePayments: number
   systemCashBalance: number
   tradeReceivables: number
   tradePayables: number
