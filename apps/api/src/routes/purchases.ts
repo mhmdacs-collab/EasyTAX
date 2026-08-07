@@ -13,6 +13,12 @@ export const purchasesRouter = new Hono()
 const paymentMethods = ["cash", "bank_transfer", "card", "sadad"] as const
 const ibanPattern = /^SA\d{22}$/
 
+const initialPaymentSchema = z.object({
+  amount: z.number().positive(),
+  payment_method: z.enum(paymentMethods),
+  reference_number: z.string().trim().max(120).optional(),
+})
+
 function invoiceDateInRiyadh(timestamp: string) {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Riyadh", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(timestamp))
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
@@ -38,9 +44,26 @@ const purchaseSchema = z.object({
   qr_fields: z.record(z.string(), z.string()).default({}),
   duplicate_override: z.boolean().default(false),
   responsibility_confirmed: z.literal(true),
+  payment_status: z.enum(["paid", "partially_paid", "unpaid"]).default("unpaid"),
+  initial_payment: initialPaymentSchema.optional(),
   notes: z.string().trim().max(1000).optional(),
 }).superRefine((body, context) => {
   if (body.tax_total > body.total) context.addIssue({ code: "custom", path: ["tax_total"], message: "مبلغ الضريبة لا يمكن أن يتجاوز إجمالي الفاتورة" })
+  if (body.payment_status === "unpaid" && body.initial_payment) {
+    context.addIssue({ code: "custom", path: ["initial_payment"], message: "الفاتورة غير المدفوعة لا تقبل دفعة أولى" })
+  }
+  if (body.payment_status !== "unpaid" && !body.initial_payment) {
+    context.addIssue({ code: "custom", path: ["initial_payment"], message: "أدخل بيانات الدفعة" })
+  }
+  if (body.payment_status === "paid" && body.initial_payment && Math.abs(body.initial_payment.amount - body.total) > 0.005) {
+    context.addIssue({ code: "custom", path: ["initial_payment", "amount"], message: "الفاتورة المدفوعة يجب أن تكون مسددة بالكامل" })
+  }
+  if (body.payment_status === "partially_paid" && body.initial_payment && body.initial_payment.amount >= body.total) {
+    context.addIssue({ code: "custom", path: ["initial_payment", "amount"], message: "الدفعة الجزئية يجب أن تكون أقل من إجمالي الفاتورة" })
+  }
+  if (body.initial_payment?.payment_method === "sadad" && !body.initial_payment.reference_number) {
+    context.addIssue({ code: "custom", path: ["initial_payment", "reference_number"], message: "رقم سداد أو رقم الفاتورة مطلوب" })
+  }
 })
 
 purchasesRouter.get("/", async (c) => {
@@ -90,16 +113,28 @@ purchasesRouter.post("/", zValidator("json", purchaseSchema), async (c) => {
     const internalNumber = `PQR-${String(nextNumber).padStart(5, "0")}`
     await client.query("UPDATE purchase_invoice_sequences SET next_number=$1 WHERE organization_id=$2", [nextNumber + 1, orgId])
     const subtotal = Math.max(0, body.total - body.tax_total)
+    const paidAmount = body.initial_payment?.amount ?? 0
     const result = await client.query(`
       INSERT INTO purchase_invoices(
         organization_id,internal_number,supplier_name,supplier_vat_number,invoice_number,invoice_date,invoice_timestamp,
         subtotal,tax_total,total,include_in_tax_return,qr_payload,qr_extraction_status,qr_fields,source,status,
-        duplicate_override,duplicate_of_id
-      ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,TRUE,$11,'extracted',$12,'qr','included',$13,$14)
+        duplicate_override,duplicate_of_id,payment_status,paid_amount,last_payment_method
+      ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,TRUE,$11,'extracted',$12,'qr','included',$13,$14,$15,$16,$17)
       RETURNING *`, [orgId, internalNumber, body.supplier_name, body.supplier_vat_number, body.invoice_number, invoiceDate,
       body.invoice_timestamp, subtotal, body.tax_total, body.total, body.qr_payload, JSON.stringify(body.qr_fields),
-      body.duplicate_override, duplicate?.id ?? null])
+      body.duplicate_override, duplicate?.id ?? null, body.payment_status, paidAmount, body.initial_payment?.payment_method ?? null])
     await postJournalEntry(client,{organizationId:orgId,entryDate:invoiceDate,sourceType:"purchase_invoice",sourceId:String(result.rows[0].id),idempotencyKey:`purchase_invoice:${String(result.rows[0].id)}:recorded`,description:`فاتورة مشتريات ${internalNumber}`,supplierReference:body.supplier_vat_number,lines:purchaseJournal({subtotal,taxTotal:body.tax_total,total:body.total})})
+    if (body.initial_payment) {
+      const paymentId = randomUUID()
+      const payment = await client.query(`INSERT INTO purchase_invoice_payments(
+        id,organization_id,purchase_invoice_id,payment_date,amount,payment_method,beneficiary_name,reference_number
+      ) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`, [
+        paymentId, orgId, result.rows[0].id, invoiceDate, body.initial_payment.amount,
+        body.initial_payment.payment_method, body.supplier_name, body.initial_payment.reference_number ?? null,
+      ])
+      await postJournalEntry(client,{organizationId:orgId,entryDate:invoiceDate,sourceType:"purchase_payment",sourceId:paymentId,idempotencyKey:`purchase_payment:${paymentId}:issued`,description:`دفعة أولى لفاتورة مشتريات ${internalNumber}`,supplierReference:body.supplier_vat_number,lines:payablePaymentJournal(body.initial_payment.amount)})
+      await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,snapshot) VALUES($1,'purchase_payment',$2,'payment_recorded',$3)", [orgId, paymentId, JSON.stringify(payment.rows[0])])
+    }
     await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,snapshot) VALUES($1,'purchase_invoice',$2,'created',$3)", [orgId, result.rows[0].id, JSON.stringify(result.rows[0])])
     return result.rows[0]
   })

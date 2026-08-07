@@ -125,6 +125,8 @@ export type TaxPurchaseInput = {
   supplier_name:string; supplier_vat_number:string; invoice_number:string; invoice_timestamp:string
   total:number; tax_total:number; qr_payload:string; qr_fields:Record<string,string>
   duplicate_override:boolean; responsibility_confirmed:true; notes?:string
+  payment_status:"paid"|"partially_paid"|"unpaid"
+  initial_payment?:{amount:number;payment_method:"cash"|"bank_transfer"|"card"|"sadad";reference_number?:string}
 }
 export const listTaxPurchases = () => request<{purchases:TaxPurchase[]}>("/purchases")
 export const fetchTaxPurchase = (id:string) => request<{purchase:TaxPurchase}>(`/purchases/${id}`)
