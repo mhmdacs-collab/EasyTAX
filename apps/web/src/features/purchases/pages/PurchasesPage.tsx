@@ -33,6 +33,7 @@ const normalizeIban = (value: string) => value.replace(/\s+/g, "").toUpperCase()
 export function PurchasesPage() {
   const [purchases, setPurchases] = useState<TaxPurchase[]>()
   const [settling, setSettling] = useState<TaxPurchase>()
+  const [statusAction, setStatusAction] = useState<{ purchase: TaxPurchase; status: TaxPurchase["status"] }>()
   const [error, setError] = useState("")
   const load = useCallback(async () => {
     try {
@@ -43,18 +44,6 @@ export function PurchasesPage() {
     }
   }, [])
   useEffect(() => { void load() }, [load])
-
-  async function changeStatus(purchase: TaxPurchase, status: TaxPurchase["status"]) {
-    const reason = status === "included" ? undefined : window.prompt(status === "cancelled" ? "سبب الإلغاء" : "سبب الاستبعاد الضريبي")?.trim()
-    if (status !== "included" && !reason) return
-    try {
-      await setTaxPurchaseStatus(purchase.id, status, reason)
-      await load()
-      toast({ title: status === "excluded" ? "تم استبعاد الفاتورة من الإقرار فقط" : status === "included" ? "تم إدراج الفاتورة في الإقرار" : "تم إلغاء الفاتورة", description: status === "excluded" ? "ستبقى الفاتورة ضمن المشتريات والقوائم المالية." : undefined, variant: "success" })
-    } catch (caught) {
-      toast({ title: "تعذر تحديث الفاتورة", description: caught instanceof Error ? caught.message : "حاول مرة أخرى", variant: "error" })
-    }
-  }
 
   function downloadCsv() {
     const rows = [["رقم EasyTAX", "رقم فاتورة المورد", "المورد", "الرقم الضريبي", "التاريخ", "قبل الضريبة", "الضريبة", "الإجمالي", "المدفوع", "المتبقي", "حالة الإقرار"],
@@ -79,11 +68,44 @@ export function PurchasesPage() {
       <table className="w-full min-w-[1120px] text-sm"><thead><tr className="border-b text-muted-foreground"><th className="p-3 text-start">الرقم الداخلي</th><th className="p-3 text-start">المورد</th><th className="p-3 text-start">فاتورة المورد</th><th className="p-3 text-start">التاريخ</th><th className="p-3 text-end">الضريبة</th><th className="p-3 text-end">قيمة الفاتورة</th><th className="p-3 text-end">المدفوع</th><th className="p-3 text-end">المتبقي</th><th className="p-3 text-center">الإقرار</th><th className="p-3"></th></tr></thead>
         <tbody>{purchases.map((purchase) => {
           const remaining = Math.max(0, Number(purchase.total) - Number(purchase.paid_amount))
-          return <tr key={purchase.id} className="border-b last:border-0"><td className="p-3 font-mono font-semibold text-primary">{purchase.internal_number}</td><td className="p-3"><div className="font-medium">{purchase.supplier_name}</div><div className="text-xs text-muted-foreground" dir="ltr">{purchase.supplier_vat_number}</div></td><td className="p-3">{purchase.invoice_number}</td><td className="p-3" dir="ltr">{formatDate(purchase.invoice_date)}</td><td className="p-3 text-end tabular-nums">{formatCurrency(Number(purchase.tax_total))}</td><td className="p-3 text-end font-medium tabular-nums">{formatCurrency(Number(purchase.total))}</td><td className="p-3 text-end tabular-nums">{formatCurrency(Number(purchase.paid_amount))}</td><td className={`p-3 text-end font-bold tabular-nums ${remaining > 0 ? "text-destructive" : "text-emerald-700"}`}>{formatCurrency(remaining)}</td><td className="p-3 text-center"><TaxStatus status={purchase.status} /></td><td className="p-3"><div className="flex items-center justify-end gap-2"><Button size="sm" variant={remaining > 0 && purchase.status !== "cancelled" ? "default" : "outline"} disabled={purchase.status === "cancelled"} onClick={() => { setSettling(purchase) }}><CircleDollarSign className="size-4" />{remaining > 0 ? "سداد" : "الدفعات"}</Button>{purchase.status === "cancelled" ? <span className="text-xs text-muted-foreground">مغلقة</span> : <select aria-label="إجراء على فاتورة المشتريات" className="rounded-md border bg-background px-2 py-1" value="" onChange={(event) => { const status = event.target.value; if (status === "included" || status === "excluded" || status === "cancelled") void changeStatus(purchase, status) }}><option value="">إجراء…</option>{purchase.status === "excluded" ? <option value="included">إدراج في الإقرار</option> : <option value="excluded">استبعاد من الإقرار</option>}<option value="cancelled">إلغاء الفاتورة</option></select>}</div></td></tr>
+          return <tr key={purchase.id} className="border-b last:border-0"><td className="p-3 font-mono font-semibold text-primary">{purchase.internal_number}</td><td className="p-3"><div className="font-medium">{purchase.supplier_name}</div><div className="text-xs text-muted-foreground" dir="ltr">{purchase.supplier_vat_number}</div></td><td className="p-3">{purchase.invoice_number}</td><td className="p-3" dir="ltr">{formatDate(purchase.invoice_date)}</td><td className="p-3 text-end tabular-nums">{formatCurrency(Number(purchase.tax_total))}</td><td className="p-3 text-end font-medium tabular-nums">{formatCurrency(Number(purchase.total))}</td><td className="p-3 text-end tabular-nums">{formatCurrency(Number(purchase.paid_amount))}</td><td className={`p-3 text-end font-bold tabular-nums ${remaining > 0 ? "text-destructive" : "text-emerald-700"}`}>{formatCurrency(remaining)}</td><td className="p-3 text-center"><TaxStatus status={purchase.status} /></td><td className="p-3"><div className="flex items-center justify-end gap-2"><Button size="sm" variant={remaining > 0 && purchase.status !== "cancelled" ? "default" : "outline"} disabled={purchase.status === "cancelled"} onClick={() => { setSettling(purchase) }}><CircleDollarSign className="size-4" />{remaining > 0 ? "سداد" : "الدفعات"}</Button>{purchase.status === "cancelled" ? <span className="text-xs text-muted-foreground">مغلقة</span> : <select aria-label="إجراء على فاتورة المشتريات" className="rounded-md border bg-background px-2 py-1" value="" onChange={(event) => { const status = event.target.value; if (status !== "included" && status !== "excluded" && status !== "cancelled") return; if (status === "cancelled" && Number(purchase.paid_amount) > 0) { toast({ title: "اعكس الدفعات أولًا", description: "لا يمكن إلغاء فاتورة مدفوعة قبل عكس جميع دفعاتها. فُتح سجل الدفعات لتتمكن من مراجعتها.", variant: "error" }); setSettling(purchase); return } setStatusAction({ purchase, status }) }}><option value="">إجراء…</option>{purchase.status === "excluded" ? <option value="included">إعادة الإدراج في الإقرار</option> : <option value="excluded">استبعاد من الإقرار</option>}<option value="cancelled">{Number(purchase.paid_amount) > 0 ? "إلغاء — اعكس الدفعات أولًا" : "إلغاء الفاتورة"}</option></select>}</div></td></tr>
         })}</tbody>
       </table>}
     </CardContent></Card>
     {settling ? <PurchasePaymentDialog purchase={settling} onClose={() => { setSettling(undefined) }} onChanged={async () => { await load() }} /> : null}
+    {statusAction ? <PurchaseStatusDialog purchase={statusAction.purchase} status={statusAction.status} onClose={() => { setStatusAction(undefined) }} onChanged={async () => { setStatusAction(undefined); await load() }} /> : null}
+  </div>
+}
+
+function PurchaseStatusDialog({ purchase, status, onClose, onChanged }: { purchase: TaxPurchase; status: TaxPurchase["status"]; onClose: () => void; onChanged: () => Promise<void> }) {
+  const [reason, setReason] = useState("")
+  const [saving, setSaving] = useState(false)
+  const needsReason = status !== "included"
+  const titles = { included: "إعادة إدراج الفاتورة", excluded: "استبعاد الفاتورة من الإقرار", cancelled: "إلغاء فاتورة المشتريات" } as const
+  const descriptions = {
+    included: "ستعود ضريبة الفاتورة إلى سجل المشتريات في الإقرار الضريبي.",
+    excluded: "لن تدخل ضريبة الفاتورة في الإقرار، لكن تكلفة الشراء ستبقى في القوائم المالية.",
+    cancelled: "سيُعكس أثر الفاتورة محاسبيًا وتُغلق نهائيًا. لا يمكن التراجع عن الإلغاء.",
+  } as const
+  const submit = async () => {
+    const cleanReason = reason.trim()
+    if (needsReason && cleanReason.length < 3) {
+      toast({ title: "اكتب سببًا واضحًا", description: "يجب أن يتكون السبب من ثلاثة أحرف على الأقل.", variant: "error" })
+      return
+    }
+    setSaving(true)
+    try {
+      await setTaxPurchaseStatus(purchase.id, status, needsReason ? cleanReason : undefined)
+      await onChanged()
+      toast({ title: status === "excluded" ? "تم استبعاد الفاتورة من الإقرار" : status === "included" ? "تمت إعادة إدراج الفاتورة" : "تم إلغاء الفاتورة", description: status === "excluded" ? "بقيت تكلفة الشراء ضمن القوائم المالية." : undefined, variant: "success" })
+    } catch (caught) {
+      toast({ title: "تعذر تنفيذ الإجراء", description: caught instanceof Error ? caught.message : "حاول مرة أخرى", variant: "error" })
+    } finally {
+      setSaving(false)
+    }
+  }
+  return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="purchase-status-title">
+    <Card className="w-full max-w-lg"><CardHeader><CardTitle id="purchase-status-title" className="text-lg">{titles[status]}</CardTitle></CardHeader><CardContent className="space-y-4"><p className="text-sm leading-6 text-muted-foreground">{descriptions[status]}</p>{needsReason ? <div><Label htmlFor="purchase-status-reason">سبب الإجراء *</Label><Textarea id="purchase-status-reason" className="mt-1" value={reason} onChange={(event) => { setReason(event.target.value) }} placeholder={status === "cancelled" ? "مثال: أُدخلت الفاتورة بالخطأ" : "مثال: الفاتورة ليست باسم المنشأة"} /></div> : null}<div className="flex justify-end gap-2"><Button variant="outline" onClick={onClose} disabled={saving}>رجوع</Button><Button variant={status === "cancelled" ? "destructive" : "default"} loading={saving} onClick={() => { void submit() }}>تأكيد الإجراء</Button></div></CardContent></Card>
   </div>
 }
 
@@ -102,6 +124,9 @@ function PurchasePaymentDialog({ purchase, onClose, onChanged }: { purchase: Tax
   const [reference, setReference] = useState("")
   const [notes, setNotes] = useState("")
   const [saving, setSaving] = useState(false)
+  const [reversing, setReversing] = useState<NonNullable<TaxPurchase["payments"]>[number]>()
+  const [reverseReason, setReverseReason] = useState("")
+  const [reverseSaving, setReverseSaving] = useState(false)
 
   const refresh = useCallback(async () => {
     const result = await fetchTaxPurchase(purchase.id)
@@ -128,16 +153,24 @@ function PurchasePaymentDialog({ purchase, onClose, onChanged }: { purchase: Tax
     }
   }
 
-  const cancelPayment = async (paymentId: string) => {
-    const reason = window.prompt("سبب عكس الدفعة")?.trim()
-    if (!reason) return
+  const cancelPayment = async () => {
+    const reason = reverseReason.trim()
+    if (!reversing || reason.length < 3) {
+      toast({ title: "اكتب سببًا واضحًا", description: "يجب أن يتكون سبب العكس من ثلاثة أحرف على الأقل.", variant: "error" })
+      return
+    }
+    setReverseSaving(true)
     try {
-      await cancelTaxPurchasePayment(details.id, paymentId, reason)
+      await cancelTaxPurchasePayment(details.id, reversing.id, reason)
       await refresh()
       await onChanged()
+      setReversing(undefined)
+      setReverseReason("")
       toast({ title: "تم عكس الدفعة", description: "أعيد المبلغ إلى رصيد المورد مع الاحتفاظ بسجل المراجعة.", variant: "success" })
     } catch (caught) {
       toast({ title: "تعذر عكس الدفعة", description: caught instanceof Error ? caught.message : "حاول مرة أخرى", variant: "error" })
+    } finally {
+      setReverseSaving(false)
     }
   }
 
@@ -153,8 +186,9 @@ function PurchasePaymentDialog({ purchase, onClose, onChanged }: { purchase: Tax
         <div><Label htmlFor="purchase-payment-notes">ملاحظات</Label><Textarea id="purchase-payment-notes" className="mt-1" value={notes} onChange={(event) => { setNotes(event.target.value) }} /></div>
         <div className="flex justify-end"><Button type="submit" loading={saving}>تسجيل الدفعة</Button></div>
       </form> : <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-900">الفاتورة مسددة بالكامل. يمكنك مراجعة الدفعات أو عكس دفعة خاطئة أدناه.</div>}
-      <section className="space-y-2"><h3 className="flex items-center gap-2 font-semibold"><History className="size-4" />سجل الدفعات</h3>{details.payments?.length ? details.payments.map((payment) => <div key={payment.id} className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm ${payment.status === "cancelled" ? "opacity-60" : ""}`}><div><p className="font-medium">{formatCurrency(Number(payment.amount))} — {paymentMethodLabel.get(payment.payment_method)}</p><p className="text-xs text-muted-foreground" dir="ltr">{payment.payment_date}{payment.reference_number ? ` · ${payment.reference_number}` : ""}</p></div>{payment.status === "cancelled" ? <Badge variant="outline">معكوسة</Badge> : <Button type="button" size="sm" variant="outline" onClick={() => { void cancelPayment(payment.id) }}>عكس الدفعة</Button>}</div>) : <p className="rounded-lg bg-muted/30 p-4 text-center text-sm text-muted-foreground">لا توجد دفعات مسجلة.</p>}</section>
+      <section className="space-y-2"><h3 className="flex items-center gap-2 font-semibold"><History className="size-4" />سجل الدفعات</h3>{details.payments?.length ? details.payments.map((payment) => <div key={payment.id} className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm ${payment.status === "cancelled" ? "opacity-60" : ""}`}><div><p className="font-medium">{formatCurrency(Number(payment.amount))} — {paymentMethodLabel.get(payment.payment_method)}</p><p className="text-xs text-muted-foreground" dir="ltr">{payment.payment_date}{payment.reference_number ? ` · ${payment.reference_number}` : ""}</p></div>{payment.status === "cancelled" ? <Badge variant="outline">معكوسة</Badge> : <Button type="button" size="sm" variant="outline" onClick={() => { setReversing(payment); setReverseReason("") }}>عكس الدفعة</Button>}</div>) : <p className="rounded-lg bg-muted/30 p-4 text-center text-sm text-muted-foreground">لا توجد دفعات مسجلة.</p>}</section>
     </div>
+    {reversing ? <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55 p-4" role="dialog" aria-modal="true" aria-labelledby="reverse-payment-title"><Card className="w-full max-w-md"><CardHeader><CardTitle id="reverse-payment-title" className="text-lg">عكس دفعة مشتريات</CardTitle></CardHeader><CardContent className="space-y-4"><p className="text-sm text-muted-foreground">سيُعاد مبلغ {formatCurrency(Number(reversing.amount))} إلى رصيد المورد ويُحفظ قيد عكسي كامل.</p><div><Label htmlFor="purchase-reverse-reason">سبب العكس *</Label><Textarea id="purchase-reverse-reason" className="mt-1" value={reverseReason} onChange={(event) => { setReverseReason(event.target.value) }} placeholder="مثال: سُجلت الدفعة بالخطأ" /></div><div className="flex justify-end gap-2"><Button variant="outline" disabled={reverseSaving} onClick={() => { setReversing(undefined); setReverseReason("") }}>رجوع</Button><Button variant="destructive" loading={reverseSaving} onClick={() => { void cancelPayment() }}>تأكيد عكس الدفعة</Button></div></CardContent></Card></div> : null}
   </div>
 }
 
