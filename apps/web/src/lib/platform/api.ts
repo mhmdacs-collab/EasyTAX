@@ -154,6 +154,7 @@ export const addExpensePayment = (id:string,input:{amount:number;payment_method:
 export const deleteExpense = (id:string) => request<{ok:true}>(`/expenses/${id}`,{method:"DELETE"})
 
 export type FinancialInputKey =
+  | "purchase_fixed_asset_reclassification" | "purchase_prepayment_reclassification"
   | "cash_and_cash_equivalents" | "inventory"
   | "other_current_assets" | "related_party_receivable" | "property_plant_equipment"
   | "intangible_assets" | "investment_property" | "equity_method_investments" | "other_non_current_assets"

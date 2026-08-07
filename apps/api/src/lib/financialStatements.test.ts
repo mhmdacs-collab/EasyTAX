@@ -99,6 +99,46 @@ test("keeps purchases, operating expenses and fixed assets in separate classific
   assert.ok(report.validation.issues.some((issue) => issue.code === "PURCHASES_DEFAULT_CLASSIFICATION"))
 })
 
+test("reclassifies only the exceptional purchase totals without classifying every invoice", () => {
+  const input = baseInput()
+  input.current = {
+    ...emptySource(),
+    revenue: 50_000,
+    taxPurchases: 20_000,
+    purchaseCount: 4,
+  }
+  input.inputs = {
+    purchase_fixed_asset_reclassification: { current: 5_000, prior: 0 },
+    purchase_prepayment_reclassification: { current: 5_000, prior: 0 },
+    depreciation_expense: { current: 0, prior: 0 },
+  }
+
+  const report = buildFinancialStatements(input)
+  const income = Object.fromEntries(report.statements.comprehensiveIncome.map((row) => [row.code, row.current]))
+  const position = Object.fromEntries(report.statements.financialPosition.map((row) => [row.code, row.current]))
+
+  assert.equal(income.cost_of_sales, -10_000)
+  assert.equal(income.gross_profit, 40_000)
+  assert.equal(position.property_plant_equipment, 5_000)
+  assert.equal(position.prepayments, 5_000)
+  assert.equal(report.statements.cashFlows.find((row) => row.code === "fixed_asset_additions")?.current, -5_000)
+  assert.equal(report.validation.issues.some((issue) => issue.code === "PURCHASES_DEFAULT_CLASSIFICATION"), false)
+})
+
+test("blocks purchase reclassification above the recorded purchase total", () => {
+  const input = baseInput()
+  input.current = { ...emptySource(), taxPurchases: 5_000, purchaseCount: 1 }
+  input.inputs = {
+    purchase_fixed_asset_reclassification: { current: 4_000, prior: 0 },
+    purchase_prepayment_reclassification: { current: 2_000, prior: 0 },
+  }
+
+  const report = buildFinancialStatements(input)
+
+  assert.equal(report.validation.isExportable, false)
+  assert.ok(report.validation.issues.some((issue) => issue.code === "PURCHASE_RECLASSIFICATION_EXCEEDS_TOTAL"))
+})
+
 test("blocks export when the balance sheet or cash flow does not reconcile", () => {
   const input = baseInput()
   input.current = { ...emptySource(), revenue: 1_000, invoiceTotal: 1_150, salesTax: 150, systemCashBalance: 1_150 }

@@ -1,4 +1,6 @@
 export const financialInputKeys = [
+  "purchase_fixed_asset_reclassification",
+  "purchase_prepayment_reclassification",
   "cash_and_cash_equivalents",
   "inventory",
   "other_current_assets",
@@ -37,6 +39,8 @@ export const financialInputDefinitions: Array<{
   group: "assets" | "liabilities" | "equity" | "income"
   description: string
 }> = [
+  { key: "purchase_fixed_asset_reclassification", label: "مشتريات تُعامل كأصول أو معدات", group: "assets", description: "إجمالي ما اشتريته خلال السنة وسيُستخدم لأكثر من سنة، مثل المعدات والسيارات. سيطرحه النظام من تكلفة الأعمال ويضيفه إلى الأصول." },
+  { key: "purchase_prepayment_reclassification", label: "مشتريات أو دفعات تخص سنة قادمة", group: "assets", description: "إجمالي المبالغ المسجلة ضمن مشتريات السنة ولكن منفعتها تخص سنة مالية قادمة، مثل إيجار أو تأمين مدفوع مقدمًا." },
   { key: "cash_and_cash_equivalents", label: "النقد وما في حكمه", group: "assets", description: "الرصيد الفعلي للصندوق والحسابات البنكية في نهاية السنة." },
   { key: "inventory", label: "المخزون", group: "assets", description: "قيمة المخزون في نهاية السنة إن وجد." },
   { key: "other_current_assets", label: "موجودات متداولة أخرى", group: "assets", description: "أي أصول قصيرة الأجل لا تدخل في البنود السابقة." },
@@ -171,6 +175,13 @@ function statementRow(code: string, label: string, kind: StatementRow["kind"], c
 export function buildFinancialStatements(input: BuildFinancialStatementsInput): FinancialStatementReport {
   const { current, prior, inputs } = input
 
+  const purchaseFixedAssets = resolved(inputs, "purchase_fixed_asset_reclassification", "current")
+  const priorPurchaseFixedAssets = resolved(inputs, "purchase_fixed_asset_reclassification", "prior")
+  const purchasePrepayments = resolved(inputs, "purchase_prepayment_reclassification", "current")
+  const priorPurchasePrepayments = resolved(inputs, "purchase_prepayment_reclassification", "prior")
+  const classifiedPurchases = total([purchaseFixedAssets, purchasePrepayments])
+  const priorClassifiedPurchases = total([priorPurchaseFixedAssets, priorPurchasePrepayments])
+
   const depreciation = resolved(inputs, "depreciation_expense", "current")
   const priorDepreciation = resolved(inputs, "depreciation_expense", "prior")
   const otherIncome = resolved(inputs, "other_income", "current")
@@ -184,8 +195,8 @@ export function buildFinancialStatements(input: BuildFinancialStatementsInput): 
   const otherComprehensiveIncome = resolved(inputs, "other_comprehensive_income", "current")
   const priorOtherComprehensiveIncome = resolved(inputs, "other_comprehensive_income", "prior")
 
-  const costOfSales = total([current.taxPurchases, current.directCosts])
-  const priorCostOfSales = total([prior.taxPurchases, prior.directCosts])
+  const costOfSales = total([Math.max(0, current.taxPurchases - classifiedPurchases), current.directCosts])
+  const priorCostOfSales = total([Math.max(0, prior.taxPurchases - priorClassifiedPurchases), prior.directCosts])
   const grossProfit = round(current.revenue - costOfSales)
   const priorGrossProfit = round(prior.revenue - priorCostOfSales)
   const administrativeExpenses = total([current.employeeExpenses, current.operatingExpenses, depreciation])
@@ -203,14 +214,14 @@ export function buildFinancialStatements(input: BuildFinancialStatementsInput): 
   const priorReceivables = round(prior.tradeReceivables)
   const inventory = resolved(inputs, "inventory", "current")
   const priorInventory = resolved(inputs, "inventory", "prior")
-  const prepayments = round(current.prepaymentBalance)
-  const priorPrepayments = round(prior.prepaymentBalance)
+  const prepayments = total([current.prepaymentBalance, purchasePrepayments])
+  const priorPrepayments = total([prior.prepaymentBalance, priorPurchasePrepayments])
   const otherCurrentAssets = resolved(inputs, "other_current_assets", "current")
   const priorOtherCurrentAssets = resolved(inputs, "other_current_assets", "prior")
   const relatedPartyReceivable = resolved(inputs, "related_party_receivable", "current")
   const priorRelatedPartyReceivable = resolved(inputs, "related_party_receivable", "prior")
-  const propertyPlantEquipment = resolved(inputs, "property_plant_equipment", "current", Math.max(0, current.fixedAssetBalance - depreciation))
-  const priorPropertyPlantEquipment = resolved(inputs, "property_plant_equipment", "prior", Math.max(0, prior.fixedAssetBalance - priorDepreciation))
+  const propertyPlantEquipment = resolved(inputs, "property_plant_equipment", "current", Math.max(0, current.fixedAssetBalance + purchaseFixedAssets - depreciation))
+  const priorPropertyPlantEquipment = resolved(inputs, "property_plant_equipment", "prior", Math.max(0, prior.fixedAssetBalance + priorPurchaseFixedAssets - priorDepreciation))
   const intangibleAssets = resolved(inputs, "intangible_assets", "current")
   const priorIntangibleAssets = resolved(inputs, "intangible_assets", "prior")
   const investmentProperty = resolved(inputs, "investment_property", "current")
@@ -368,7 +379,7 @@ export function buildFinancialStatements(input: BuildFinancialStatementsInput): 
     otherCurrentLiabilitiesChange,
     relatedPartyPayableChange,
   ])
-  const investingCash = round(-current.fixedAssetAdditions)
+  const investingCash = round(-(current.fixedAssetAdditions + purchaseFixedAssets))
   const capitalMovement = round(capital - priorCapital)
   const loansMovement = round((currentLoans + nonCurrentLoans) - (priorCurrentLoans + priorNonCurrentLoans))
   const financingCash = round(capitalMovement + loansMovement - ownerDistributions)
@@ -390,8 +401,8 @@ export function buildFinancialStatements(input: BuildFinancialStatementsInput): 
     statementRow("related_party_payable_change", "التغير في المطلوب إلى أطراف ذات علاقة", "line", relatedPartyPayableChange, 0),
     statementRow("net_operating_cash", "صافي النقد الناتج من الأنشطة التشغيلية", "subtotal", operatingCash, 0),
     statementRow("investing_activities", "الأنشطة الاستثمارية", "heading", 0, 0),
-    statementRow("fixed_asset_additions", "إضافة ممتلكات وآلات ومعدات", "line", investingCash, -prior.fixedAssetAdditions),
-    statementRow("net_investing_cash", "صافي النقد المستخدم في الأنشطة الاستثمارية", "subtotal", investingCash, -prior.fixedAssetAdditions),
+    statementRow("fixed_asset_additions", "إضافة ممتلكات وآلات ومعدات", "line", investingCash, -(prior.fixedAssetAdditions + priorPurchaseFixedAssets)),
+    statementRow("net_investing_cash", "صافي النقد المستخدم في الأنشطة الاستثمارية", "subtotal", investingCash, -(prior.fixedAssetAdditions + priorPurchaseFixedAssets)),
     statementRow("financing_activities", "الأنشطة التمويلية", "heading", 0, 0),
     statementRow("capital_movement", "إضافة (تخفيض) رأس المال", "line", capitalMovement, 0),
     statementRow("loan_movement", "صافي التغير في القروض", "line", loansMovement, 0),
@@ -405,11 +416,14 @@ export function buildFinancialStatements(input: BuildFinancialStatementsInput): 
   const balanceDifference = round(totalAssets - totalLiabilitiesAndEquity)
   const cashDifference = round(cash - calculatedClosingCash)
   const issues: FinancialValidationIssue[] = []
+  if (purchaseFixedAssets < 0 || purchasePrepayments < 0 || priorPurchaseFixedAssets < 0 || priorPurchasePrepayments < 0) issues.push({ code: "NEGATIVE_PURCHASE_RECLASSIFICATION", severity: "error", message: "مبالغ استثناءات المشتريات يجب أن تكون صفرًا أو قيمة موجبة." })
+  if (classifiedPurchases > current.taxPurchases) issues.push({ code: "PURCHASE_RECLASSIFICATION_EXCEEDS_TOTAL", severity: "error", message: "إجمالي مشتريات الأصول والمدفوعات المقدمة يتجاوز إجمالي المشتريات الضريبية للسنة الحالية.", difference: round(classifiedPurchases - current.taxPurchases) })
+  if (priorClassifiedPurchases > prior.taxPurchases) issues.push({ code: "PRIOR_PURCHASE_RECLASSIFICATION_EXCEEDS_TOTAL", severity: "error", message: "إجمالي استثناءات مشتريات السنة السابقة يتجاوز مشترياتها الضريبية.", difference: round(priorClassifiedPurchases - prior.taxPurchases) })
   if (Math.abs(balanceDifference) > 0.01) issues.push({ code: "BALANCE_SHEET_OUT_OF_BALANCE", severity: "error", message: "إجمالي الموجودات لا يساوي إجمالي المطلوبات وحقوق الملكية.", difference: balanceDifference })
   if (Math.abs(cashDifference) > 0.01) issues.push({ code: "CASH_FLOW_MISMATCH", severity: "error", message: "رصيد النقد الختامي لا يطابق الرصيد الناتج من قائمة التدفقات النقدية.", difference: cashDifference })
   if (provided(inputs, "cash_and_cash_equivalents", "current") === undefined) issues.push({ code: "CASH_NOT_CONFIRMED", severity: "warning", message: "لم يتم تأكيد رصيد الصندوق والبنوك؛ استخدم النظام الرصيد المستنتج من السندات والمصروفات المسجلة." })
   if (provided(inputs, "capital", "current") === undefined) issues.push({ code: "CAPITAL_NOT_CONFIRMED", severity: "warning", message: "أدخل رأس المال المسجل قبل اعتماد القوائم النهائية." })
-  if (current.purchaseCount > 0) issues.push({ code: "PURCHASES_DEFAULT_CLASSIFICATION", severity: "info", message: "صُنفت فواتير المشتريات الضريبية ضمن تكاليف المبيعات مبدئيًا؛ راجع مشتريات الأصول قبل الإقفال." })
+  if (current.purchaseCount > 0 && classifiedPurchases === 0) issues.push({ code: "PURCHASES_DEFAULT_CLASSIFICATION", severity: "info", message: "صُنفت فواتير المشتريات الضريبية ضمن تكاليف الأعمال. إذا تضمنت معدات أو دفعات تخص سنة قادمة فسجّل إجماليها في خطوة مراجعة المشتريات." })
   if (prior.invoiceCount + prior.purchaseCount + prior.expenseCount === 0 && Object.values(inputs).every((value) => value?.prior === null || value?.prior === undefined)) issues.push({ code: "NO_COMPARATIVE_DATA", severity: "info", message: "لا توجد بيانات مقارنة للسنة السابقة؛ سيظهر عمود السنة السابقة بصفر." })
 
   return {
