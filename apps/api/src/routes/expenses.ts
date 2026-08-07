@@ -3,12 +3,14 @@ import { Hono } from "hono"
 import { z } from "zod"
 import { zValidator } from "@hono/zod-validator"
 import { auth } from "../lib/auth"
-import { sql } from "../lib/db"
+import { sql, withTransaction } from "../lib/db"
+import { applyExpensePayment } from "../lib/expensePayments"
 
 export const expensesRouter = new Hono()
 
 const categories = ["work_costs", "payroll", "rent_utilities", "vehicles_transport", "admin_marketing_professional", "asset_equipment", "other"] as const
 const financialClasses = ["direct_cost", "operating_expense", "employee_expense", "fixed_asset", "prepayment", "other_expense"] as const
+const paymentMethods = ["cash", "bank_transfer", "card", "sadad"] as const
 
 async function organizationId(headers: Headers) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -26,7 +28,7 @@ const expenseSchema = z.object({
   amount: z.coerce.number().positive().max(999999999999),
   payment_status: z.enum(["paid", "unpaid", "partially_paid"]),
   paid_amount: z.coerce.number().min(0),
-  payment_method: z.string().trim().max(100).optional(),
+  payment_method: z.enum(paymentMethods).optional(),
   supplier_name: z.string().trim().max(200).optional(),
   reference_number: z.string().trim().max(100).optional(),
   project_reference: z.string().trim().max(100).optional(),
@@ -35,6 +37,8 @@ const expenseSchema = z.object({
   if (value.paid_amount > value.amount) ctx.addIssue({ code: "custom", path: ["paid_amount"], message: "المبلغ المدفوع لا يمكن أن يتجاوز قيمة المصروف" })
   if (value.payment_status === "paid" && value.paid_amount !== value.amount) ctx.addIssue({ code: "custom", path: ["paid_amount"], message: "المصروف المدفوع يجب أن يكون مسددًا بالكامل" })
   if (value.payment_status === "unpaid" && value.paid_amount !== 0) ctx.addIssue({ code: "custom", path: ["paid_amount"], message: "المصروف غير المدفوع يجب أن تكون دفعاته صفرًا" })
+  if (value.payment_status !== "unpaid" && !value.payment_method) ctx.addIssue({ code: "custom", path: ["payment_method"], message: "اختر طريقة الدفع" })
+  if (value.payment_status === "partially_paid" && (value.paid_amount <= 0 || value.paid_amount >= value.amount)) ctx.addIssue({ code: "custom", path: ["paid_amount"], message: "أدخل دفعة أقل من إجمالي المصروف" })
 })
 
 expensesRouter.get("/", async (c) => {
@@ -62,15 +66,53 @@ expensesRouter.post("/", zValidator("json", expenseSchema), async (c) => {
   if (!orgId) return c.json({ error: "غير مصرح" }, 401)
   const input = c.req.valid("json")
   const id = randomUUID()
-  const rows = await sql`INSERT INTO expenses (
-    id, organization_id, expense_date, category, financial_class, description, amount,
-    payment_status, paid_amount, payment_method, supplier_name, reference_number, project_reference, notes
-  ) VALUES (
-    ${id}, ${orgId}, ${input.expense_date}, ${input.category}, ${input.financial_class}, ${input.description}, ${input.amount},
-    ${input.payment_status}, ${input.paid_amount}, ${input.payment_method || null}, ${input.supplier_name || null},
-    ${input.reference_number || null}, ${input.project_reference || null}, ${input.notes || null}
-  ) RETURNING *`
-  return c.json({ expense: rows[0] }, 201)
+  const expense = await withTransaction(async (client) => {
+    const result = await client.query(`INSERT INTO expenses (
+      id, organization_id, expense_date, category, financial_class, description, amount,
+      payment_status, paid_amount, payment_method, supplier_name, reference_number, project_reference, notes
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`, [
+      id, orgId, input.expense_date, input.category, input.financial_class, input.description, input.amount,
+      input.payment_status, input.paid_amount, input.payment_method ?? null, input.supplier_name || null,
+      input.reference_number || null, input.project_reference || null, input.notes || null,
+    ])
+    if (input.paid_amount > 0 && input.payment_method) await client.query(
+      "INSERT INTO expense_payments(id,organization_id,expense_id,payment_date,amount,payment_method,reference_number) VALUES($1,$2,$3,$4,$5,$6,$7)",
+      [randomUUID(), orgId, id, input.expense_date, input.paid_amount, input.payment_method, input.reference_number || null],
+    )
+    return result.rows[0]
+  })
+  return c.json({ expense }, 201)
+})
+
+const paymentSchema = z.object({
+  amount: z.coerce.number().positive(),
+  payment_method: z.enum(paymentMethods),
+  payment_date: z.iso.date(),
+  reference_number: z.string().trim().max(100).optional(),
+  notes: z.string().trim().max(500).optional(),
+})
+
+expensesRouter.post("/:id/payments", zValidator("json", paymentSchema), async (c) => {
+  const orgId = await organizationId(c.req.raw.headers)
+  if (!orgId) return c.json({ error: "غير مصرح" }, 401)
+  const input = c.req.valid("json")
+  const result = await withTransaction(async (client) => {
+    const current = await client.query("SELECT * FROM expenses WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL FOR UPDATE", [c.req.param("id"), orgId])
+    const expense = current.rows[0]
+    if (!expense) return { error: "NOT_FOUND" as const }
+    const payment = applyExpensePayment(Number(expense.amount), Number(expense.paid_amount), input.amount)
+    if (!payment.ok) return { error: payment.reason, remaining: payment.remaining }
+    await client.query("INSERT INTO expense_payments(id,organization_id,expense_id,payment_date,amount,payment_method,reference_number,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", [randomUUID(), orgId, expense.id, input.payment_date, input.amount, input.payment_method, input.reference_number || null, input.notes || null])
+    const updated = await client.query("UPDATE expenses SET paid_amount=$1,payment_status=$2,payment_method=$3,updated_at=NOW() WHERE id=$4 RETURNING *", [payment.paid, payment.status, input.payment_method, expense.id])
+    return { expense: updated.rows[0] }
+  })
+  if ("error" in result) {
+    if (result.error === "NOT_FOUND") return c.json({ error: "المصروف غير موجود" }, 404)
+    if (result.error === "ALREADY_PAID") return c.json({ error: "المصروف مدفوع بالكامل" }, 409)
+    if (result.error === "INVALID_AMOUNT") return c.json({ error: `المبلغ يتجاوز المتبقي وهو ${result.remaining.toFixed(2)} ر.س` }, 400)
+    return c.json({ error: "تعذر تسجيل الدفعة" }, 400)
+  }
+  return c.json(result)
 })
 
 expensesRouter.delete("/:id", async (c) => {
