@@ -1,20 +1,10 @@
 import { resolveApiUrl } from "@/lib/api/baseUrl"
+import { platformErrorMessage } from "./errorMessage"
 
 const API_URL = resolveApiUrl()
 
 function errorMessage(body: { error?: unknown; message?: unknown }) {
-  if (typeof body.error === "string") return body.error
-  if (body.error && typeof body.error === "object") {
-    const error = body.error as Record<string, unknown>
-    const issues = error.issues
-    if (Array.isArray(issues) && issues[0] && typeof issues[0] === "object") {
-      const message = (issues[0] as Record<string, unknown>).message
-      if (typeof message === "string") return message
-    }
-    const message = error.message
-    if (typeof message === "string") return message
-  }
-  return typeof body.message === "string" ? body.message : "تعذر إتمام الطلب"
+  return platformErrorMessage(body)
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
