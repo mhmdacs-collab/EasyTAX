@@ -14,6 +14,7 @@ import { documentsRouter } from "./routes/documents";
 import { receiptsRouter } from "./routes/receipts";
 import { purchasesRouter } from "./routes/purchases";
 import { taxReturnsRouter } from "./routes/taxReturns";
+import { expensesRouter } from "./routes/expenses";
 
 const app = new Hono();
 
@@ -114,6 +115,7 @@ app.route("/api/v1/documents", documentsRouter);
 app.route("/api/v1/receipts", receiptsRouter);
 app.route("/api/v1/purchases", purchasesRouter);
 app.route("/api/v1/tax-returns", taxReturnsRouter);
+app.route("/api/v1/expenses", expensesRouter);
 
 // ─── Start Server ─────────────────────────────────────────────────────────────
 const port = Number(process.env.PORT ?? 3000);

@@ -153,6 +153,7 @@ const SettingsPage = lazy(() => import("@/features/settings/pages/SettingsPage")
 const PurchasesPage = lazy(() => import("@/features/purchases/pages/PurchasesPage").then((m) => ({ default: m.PurchasesPage })))
 const ScanPurchasePage = lazy(() => import("@/features/purchases/pages/ScanPurchasePage").then((m) => ({ default: m.ScanPurchasePage })))
 const TaxReturnPage = lazy(() => import("@/features/taxReturns/pages/TaxReturnPage").then((m) => ({ default: m.TaxReturnPage })))
+const ExpensesPage = lazy(() => import("@/features/expenses/pages/ExpensesPage").then((m) => ({ default: m.ExpensesPage })))
 
 const dashboardRoute = createRoute({ getParentRoute: () => appRoute, path: "/", component: DashboardPage })
 const customersRoute = createRoute({ getParentRoute: () => appRoute, path: "/customers", component: CustomersPage })
@@ -172,6 +173,7 @@ const settingsRoute = createRoute({ getParentRoute: () => appRoute, path: "/sett
 const purchasesRoute = createRoute({ getParentRoute: () => appRoute, path: "/purchases", component: PurchasesPage })
 const scanPurchaseRoute = createRoute({ getParentRoute: () => appRoute, path: "/purchases/scan", component: ScanPurchasePage })
 const taxReturnRoute = createRoute({ getParentRoute: () => appRoute, path: "/tax-return", component: TaxReturnPage })
+const expensesRoute = createRoute({ getParentRoute: () => appRoute, path: "/expenses", component: ExpensesPage })
 
 // ─── Tree ─────────────────────────────────────────────────────────────────────
 const routeTree = rootRoute.addChildren([
@@ -189,6 +191,7 @@ const routeTree = rootRoute.addChildren([
     purchasesRoute,
     scanPurchaseRoute,
     taxReturnRoute,
+    expensesRoute,
     settingsRoute,
   ]),
 ])
