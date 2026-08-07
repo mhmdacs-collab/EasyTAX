@@ -152,3 +152,39 @@ export const listExpenses = (year:number,month:number) => request<{expenses:Cent
 export const createExpense = (input:ExpenseInput) => request<{expense:CentralExpense}>("/expenses",{method:"POST",body:JSON.stringify(input)})
 export const addExpensePayment = (id:string,input:{amount:number;payment_method:ExpensePaymentMethod;payment_date:string;beneficiary_name:string;beneficiary_iban?:string;reference_number?:string;notes?:string}) => request<{expense:CentralExpense}>(`/expenses/${id}/payments`,{method:"POST",body:JSON.stringify(input)})
 export const deleteExpense = (id:string) => request<{ok:true}>(`/expenses/${id}`,{method:"DELETE"})
+
+export type FinancialInputKey =
+  | "cash_and_cash_equivalents" | "trade_receivables" | "inventory" | "prepayments"
+  | "other_current_assets" | "related_party_receivable" | "property_plant_equipment"
+  | "intangible_assets" | "investment_property" | "equity_method_investments" | "other_non_current_assets"
+  | "trade_payables" | "current_loans" | "non_current_loans" | "employee_benefits"
+  | "zakat_payable" | "taxes_payable" | "related_party_payable" | "other_current_liabilities"
+  | "other_non_current_liabilities" | "capital" | "statutory_reserve" | "retained_earnings_opening"
+  | "other_equity" | "owner_distributions" | "other_income" | "finance_cost" | "zakat_expense"
+  | "income_tax_expense" | "depreciation_expense" | "other_comprehensive_income"
+
+export type FinancialInputValue = { current:number|null; prior:number|null; note?:string }
+export type FinancialStatementRow = { code:string; label:string; kind:"heading"|"line"|"subtotal"|"total"; current:number; prior:number }
+export type EquityMovementRow = { code:string; label:string; capital:number; statutoryReserve:number; retainedEarnings:number; otherEquity:number; total:number }
+export type FinancialValidationIssue = { code:string; severity:"error"|"warning"|"info"; message:string; difference?:number }
+export type FinancialSourceTotals = {
+  revenue:number; invoiceTotal:number; salesTax:number; taxPurchases:number; purchaseTax:number
+  directCosts:number; employeeExpenses:number; operatingExpenses:number; otherExpenses:number
+  fixedAssetAdditions:number; fixedAssetBalance:number; prepaymentBalance:number; receiptInflows:number
+  standaloneAdvances:number; expensePayments:number; systemCashBalance:number; tradeReceivables:number
+  tradePayables:number; invoiceCount:number; purchaseCount:number; expenseCount:number
+}
+export type FinancialStatementReport = {
+  organization:{id:string;businessName:string;legalForm:string;vatNumber:string;commercialRegistration:string}
+  period:{fiscalYear:number;startsOn:string;endsOn:string;priorStartsOn:string;priorEndsOn:string;currency:"SAR"}
+  sourceSummary:FinancialSourceTotals&{prior:FinancialSourceTotals}
+  inputs:Partial<Record<FinancialInputKey,FinancialInputValue>>
+  inputDefinitions:Array<{key:FinancialInputKey;label:string;group:"assets"|"liabilities"|"equity"|"income";description:string}>
+  statements:{financialPosition:FinancialStatementRow[];comprehensiveIncome:FinancialStatementRow[];changesInEquity:EquityMovementRow[];cashFlows:FinancialStatementRow[]}
+  totals:{assets:number;liabilitiesAndEquity:number;netProfit:number;comprehensiveIncome:number;closingCash:number;calculatedClosingCash:number}
+  validation:{isExportable:boolean;issues:FinancialValidationIssue[]}
+}
+export type FinancialStatementInputPayload = {key:FinancialInputKey;current_amount:number|null;prior_amount:number|null;note?:string}
+export const fetchFinancialStatements = (year:number) => request<{report:FinancialStatementReport}>(`/financial-statements/${year}`)
+export const saveFinancialStatementInputs = (year:number,inputs:FinancialStatementInputPayload[]) => request<{report:FinancialStatementReport}>(`/financial-statements/${year}/inputs`,{method:"PUT",body:JSON.stringify({inputs})})
+export const createFinancialStatementSnapshot = (year:number) => request<{snapshot:{id:string;version:number;generated_at:string}}>(`/financial-statements/${year}/snapshots`,{method:"POST"})
