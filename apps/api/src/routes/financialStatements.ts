@@ -3,6 +3,7 @@ import { z } from "zod"
 import { zValidator } from "@hono/zod-validator"
 import { auth } from "../lib/auth"
 import { sql, withTransaction } from "../lib/db"
+import { activePeriodLock, lockedPeriodMessage } from "../lib/periodLocks"
 import {
   buildFinancialStatements,
   financialInputKeys,
@@ -40,14 +41,14 @@ const numberValue = (value: unknown) => Number(value ?? 0)
 async function loadSources(orgId: string, startsOn: string, endsOn: string): Promise<FinancialSourceTotals> {
   const rows = await sql`
     SELECT
-      (SELECT COALESCE(SUM(total-tax_total),0) FROM documents
-        WHERE organization_id=${orgId} AND type='invoice' AND status IN ('issued','paid','partially_paid')
+      (SELECT COALESCE(SUM(CASE WHEN type IN ('invoice','debit_note') THEN total-tax_total WHEN type='credit_note' THEN -(total-tax_total) ELSE 0 END),0) FROM documents
+        WHERE organization_id=${orgId} AND type IN ('invoice','credit_note','debit_note') AND status IN ('issued','paid','partially_paid')
           AND deleted_at IS NULL AND issue_date BETWEEN ${startsOn} AND ${endsOn}) AS revenue,
-      (SELECT COALESCE(SUM(total),0) FROM documents
-        WHERE organization_id=${orgId} AND type='invoice' AND status IN ('issued','paid','partially_paid')
+      (SELECT COALESCE(SUM(CASE WHEN type IN ('invoice','debit_note') THEN total WHEN type='credit_note' THEN -total ELSE 0 END),0) FROM documents
+        WHERE organization_id=${orgId} AND type IN ('invoice','credit_note','debit_note') AND status IN ('issued','paid','partially_paid')
           AND deleted_at IS NULL AND issue_date BETWEEN ${startsOn} AND ${endsOn}) AS invoice_total,
-      (SELECT COALESCE(SUM(tax_total),0) FROM documents
-        WHERE organization_id=${orgId} AND type='invoice' AND status IN ('issued','paid','partially_paid')
+      (SELECT COALESCE(SUM(CASE WHEN type IN ('invoice','debit_note') THEN tax_total WHEN type='credit_note' THEN -tax_total ELSE 0 END),0) FROM documents
+        WHERE organization_id=${orgId} AND type IN ('invoice','credit_note','debit_note') AND status IN ('issued','paid','partially_paid')
           AND deleted_at IS NULL AND issue_date BETWEEN ${startsOn} AND ${endsOn}) AS sales_tax,
       (SELECT COALESCE(SUM(CASE WHEN include_in_tax_return THEN subtotal ELSE total END),0) FROM purchase_invoices
         WHERE organization_id=${orgId} AND accounting_status='recorded' AND deleted_at IS NULL
@@ -84,13 +85,31 @@ async function loadSources(orgId: string, startsOn: string, endsOn: string): Pro
         WHERE organization_id=${orgId} AND payment_date BETWEEN ${startsOn} AND ${endsOn}) AS expense_payments,
       (SELECT COALESCE(SUM(amount),0) FROM purchase_invoice_payments
         WHERE organization_id=${orgId} AND status='issued' AND payment_date BETWEEN ${startsOn} AND ${endsOn}) AS purchase_payments,
+      (SELECT COALESCE(SUM(amount),0) FROM financial_movements
+        WHERE organization_id=${orgId} AND status='recorded' AND movement_type='opening_cash' AND movement_date<=${endsOn}) AS opening_cash,
+      (SELECT COALESCE(SUM(amount),0) FROM financial_movements
+        WHERE organization_id=${orgId} AND status='recorded' AND movement_type='capital_contribution' AND movement_date<=${endsOn}) AS capital_balance,
+      (SELECT COALESCE(SUM(amount),0) FROM financial_movements
+        WHERE organization_id=${orgId} AND status='recorded' AND movement_type='owner_withdrawal' AND movement_date BETWEEN ${startsOn} AND ${endsOn}) AS owner_withdrawals,
+      (SELECT COALESCE(SUM(CASE WHEN movement_type='loan_received' THEN amount WHEN movement_type='loan_repayment' THEN -amount ELSE 0 END),0) FROM financial_movements
+        WHERE organization_id=${orgId} AND status='recorded' AND loan_term='current' AND movement_date<=${endsOn}) AS current_loan_balance,
+      (SELECT COALESCE(SUM(CASE WHEN movement_type='loan_received' THEN amount WHEN movement_type='loan_repayment' THEN -amount ELSE 0 END),0) FROM financial_movements
+        WHERE organization_id=${orgId} AND status='recorded' AND loan_term='non_current' AND movement_date<=${endsOn}) AS non_current_loan_balance,
       ((SELECT COALESCE(SUM(amount),0) FROM customer_receipts
           WHERE organization_id=${orgId} AND status='issued' AND receipt_date<=${endsOn})
        - (SELECT COALESCE(SUM(amount),0) FROM expense_payments
           WHERE organization_id=${orgId} AND payment_date<=${endsOn})
        - (SELECT COALESCE(SUM(amount),0) FROM purchase_invoice_payments
-          WHERE organization_id=${orgId} AND status='issued' AND payment_date<=${endsOn})) AS system_cash_balance,
-      (SELECT COALESCE(SUM(GREATEST(d.total-COALESCE((
+          WHERE organization_id=${orgId} AND status='issued' AND payment_date<=${endsOn})
+       + (SELECT COALESCE(SUM(CASE
+            WHEN movement_type IN ('opening_cash','capital_contribution','loan_received') THEN amount
+            WHEN movement_type IN ('owner_withdrawal','loan_repayment') THEN -amount ELSE 0 END),0)
+          FROM financial_movements WHERE organization_id=${orgId} AND status='recorded' AND movement_date<=${endsOn})) AS system_cash_balance,
+      (SELECT COALESCE(SUM(GREATEST(d.total-d.retention_total
+        + COALESCE((SELECT SUM(CASE WHEN a.type='debit_note' THEN a.total WHEN a.type='credit_note' THEN -a.total ELSE 0 END)
+          FROM documents a WHERE a.organization_id=${orgId} AND a.source_document_id=d.id
+            AND a.status IN ('issued','paid','partially_paid') AND a.deleted_at IS NULL AND a.issue_date<=${endsOn}),0)
+        -COALESCE((
           SELECT SUM(cr.amount) FROM customer_receipts cr
           WHERE cr.organization_id=${orgId} AND cr.source_document_id=d.id AND cr.status='issued' AND cr.receipt_date<=${endsOn}
         ),0),0)),0)
@@ -138,6 +157,11 @@ async function loadSources(orgId: string, startsOn: string, endsOn: string): Pro
     standaloneAdvances: numberValue(row.standalone_advances),
     expensePayments: numberValue(row.expense_payments),
     purchasePayments: numberValue(row.purchase_payments),
+    openingCash: numberValue(row.opening_cash),
+    capitalBalance: numberValue(row.capital_balance),
+    ownerWithdrawals: numberValue(row.owner_withdrawals),
+    currentLoanBalance: numberValue(row.current_loan_balance),
+    nonCurrentLoanBalance: numberValue(row.non_current_loan_balance),
     systemCashBalance: numberValue(row.system_cash_balance),
     tradeReceivables: numberValue(row.trade_receivables),
     tradePayables: numberValue(row.trade_payables),
@@ -245,7 +269,9 @@ financialStatementsRouter.put("/:year/inputs", zValidator("json", inputSchema), 
   if (!organization.financial_reporting_enabled) return c.json({ error: "فعّل القوائم المالية من الإعدادات أولًا" }, 403)
   const range = fiscalYearRange(year, Number(organization.fiscal_year_start_month || 1))
   const body = c.req.valid("json")
-  await withTransaction(async (client) => {
+  const saved = await withTransaction(async (client) => {
+    const lock = await activePeriodLock(client, orgId, range.endsOn)
+    if (lock?.lock_type === "financial_year" && lock.starts_on === range.startsOn) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(lock) }
     const periodResult = await client.query(`
       INSERT INTO financial_statement_periods(organization_id,fiscal_year,starts_on,ends_on)
       VALUES($1,$2,$3,$4)
@@ -263,7 +289,9 @@ financialStatementsRouter.put("/:year/inputs", zValidator("json", inputSchema), 
         ON CONFLICT(period_id,input_key) DO UPDATE SET current_amount=EXCLUDED.current_amount,prior_amount=EXCLUDED.prior_amount,note=EXCLUDED.note,updated_at=NOW()`,
       [orgId, periodId, item.key, item.current_amount, item.prior_amount, item.note || null])
     }
+    return { ok: true as const }
   })
+  if ("error" in saved) return c.json({ error: saved.message }, 409)
   const refreshed = await buildReport(orgId, year)
   if ("error" in refreshed) return c.json({ error: "تعذر إعادة إعداد القوائم" }, 500)
   return c.json({ report: refreshed.report })
@@ -282,7 +310,7 @@ financialStatementsRouter.post("/:year/snapshots", async (c) => {
     const periodResult = await client.query(`
       INSERT INTO financial_statement_periods(organization_id,fiscal_year,starts_on,ends_on,status)
       VALUES($1,$2,$3,$4,'generated')
-      ON CONFLICT(organization_id,fiscal_year) DO UPDATE SET status='generated',updated_at=NOW()
+      ON CONFLICT(organization_id,fiscal_year) DO UPDATE SET status=CASE WHEN financial_statement_periods.status='closed' THEN 'closed' ELSE 'generated' END,updated_at=NOW()
       RETURNING id`, [orgId, year, range.startsOn, range.endsOn])
     const periodId = String(periodResult.rows[0].id)
     await client.query("SELECT id FROM financial_statement_periods WHERE id=$1 FOR UPDATE", [periodId])
@@ -296,4 +324,33 @@ financialStatementsRouter.post("/:year/snapshots", async (c) => {
     return inserted.rows[0]
   })
   return c.json({ snapshot }, 201)
+})
+
+const closeSchema = z.object({ reason: z.string().trim().min(5).max(500).default("اعتماد القوائم المالية وقفل السنة") })
+
+financialStatementsRouter.post("/:year/close", zValidator("json", closeSchema), async (c) => {
+  const orgId = await organizationId(c.req.raw.headers)
+  if (!orgId) return c.json({ error: "غير مصرح" }, 401)
+  const year = parsedYear(c.req.param("year"))
+  if (!year) return c.json({ error: "السنة المالية غير صحيحة" }, 400)
+  const body = c.req.valid("json")
+  const built = await buildReport(orgId, year)
+  if ("error" in built) return c.json({ error: "تعذر إعداد القوائم المالية" }, 400)
+  if (!built.report.validation.isExportable) return c.json({ error: "لا يمكن إقفال السنة قبل معالجة أخطاء التوازن والتدفق النقدي", validation: built.report.validation }, 422)
+  const result = await withTransaction(async (client) => {
+    const range = built.report.period
+    const existing = await client.query("SELECT id FROM accounting_period_locks WHERE organization_id=$1 AND lock_type='financial_year' AND starts_on=$2 AND ends_on=$3 AND status='locked' FOR UPDATE", [orgId, range.startsOn, range.endsOn])
+    if (existing.rows[0]) return { error: "ALREADY_CLOSED" as const }
+    const period = await client.query(`INSERT INTO financial_statement_periods(organization_id,fiscal_year,starts_on,ends_on,status)
+      VALUES($1,$2,$3,$4,'closed') ON CONFLICT(organization_id,fiscal_year) DO UPDATE SET status='closed',updated_at=NOW() RETURNING id`, [orgId, year, range.startsOn, range.endsOn])
+    const versionResult = await client.query("SELECT COALESCE(MAX(version),0)+1 AS version FROM financial_statement_snapshots WHERE period_id=$1", [period.rows[0].id])
+    const snapshot = await client.query(`INSERT INTO financial_statement_snapshots(organization_id,period_id,version,report,validation)
+      VALUES($1,$2,$3,$4,$5) RETURNING id,version,generated_at`, [orgId, period.rows[0].id, Number(versionResult.rows[0].version), JSON.stringify(built.report), JSON.stringify(built.report.validation)])
+    const lock = await client.query(`INSERT INTO accounting_period_locks(organization_id,lock_type,starts_on,ends_on,source_entity_id,reason)
+      VALUES($1,'financial_year',$2,$3,$4,$5) RETURNING *`, [orgId, range.startsOn, range.endsOn, period.rows[0].id, body.reason])
+    await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,reason,snapshot) VALUES($1,'financial_statement',$2,'closed',$3,$4)", [orgId, snapshot.rows[0].id, body.reason, JSON.stringify({ fiscal_year: year, version: snapshot.rows[0].version, lock_id: lock.rows[0].id })])
+    return { snapshot: snapshot.rows[0], lock: lock.rows[0] }
+  })
+  if ("error" in result) return c.json({ error: "السنة المالية مقفلة مسبقًا" }, 409)
+  return c.json(result, 201)
 })

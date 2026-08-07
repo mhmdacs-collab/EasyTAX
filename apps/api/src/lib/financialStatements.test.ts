@@ -19,6 +19,11 @@ const emptySource = (): FinancialSourceTotals => ({
   standaloneAdvances: 0,
   expensePayments: 0,
   purchasePayments: 0,
+  openingCash: 0,
+  capitalBalance: 0,
+  ownerWithdrawals: 0,
+  currentLoanBalance: 0,
+  nonCurrentLoanBalance: 0,
   systemCashBalance: 0,
   tradeReceivables: 0,
   tradePayables: 0,
@@ -153,4 +158,24 @@ test("blocks export when the balance sheet or cash flow does not reconcile", () 
   assert.equal(report.validation.isExportable, false)
   assert.ok(report.validation.issues.some((issue) => issue.code === "BALANCE_SHEET_OUT_OF_BALANCE"))
   assert.ok(report.validation.issues.some((issue) => issue.code === "CASH_FLOW_MISMATCH"))
+})
+
+test("uses recorded capital, owner withdrawals and loans without duplicate manual inputs", () => {
+  const input = baseInput()
+  input.current = {
+    ...emptySource(),
+    capitalBalance: 1_000,
+    ownerWithdrawals: 100,
+    currentLoanBalance: 500,
+    systemCashBalance: 1_400,
+  }
+
+  const report = buildFinancialStatements(input)
+
+  assert.equal(report.statements.financialPosition.find((row) => row.code === "cash_and_cash_equivalents")?.current, 1_400)
+  assert.equal(report.statements.financialPosition.find((row) => row.code === "current_loans")?.current, 500)
+  assert.equal(report.statements.financialPosition.find((row) => row.code === "capital")?.current, 1_000)
+  assert.equal(report.statements.changesInEquity.find((row) => row.code === "owner_distributions")?.total, -100)
+  assert.equal(report.totals.calculatedClosingCash, 1_400)
+  assert.equal(report.validation.isExportable, true)
 })

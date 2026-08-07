@@ -6,6 +6,8 @@ import { auth } from "../lib/auth"
 import { sql, withTransaction } from "../lib/db"
 import { issueReceipt } from "../lib/receiptService"
 import { calculateDocument } from "../lib/documentCalculations"
+import { activePeriodLock, lockedPeriodMessage } from "../lib/periodLocks"
+import { availableCreditAmount, calculateTaxAdjustment } from "../lib/documentAdjustments"
 
 export const documentsRouter = new Hono()
 
@@ -92,6 +94,8 @@ documentsRouter.post("/:id/issue", async (c) => {
   const result = await withTransaction(async (client) => {
     const draft = await client.query("SELECT * FROM documents WHERE id=$1 AND organization_id=$2 AND status='draft' AND deleted_at IS NULL FOR UPDATE", [c.req.param("id"), organizationId])
     if (!draft.rows[0]) return null
+    const periodLock = await activePeriodLock(client, organizationId, String(draft.rows[0].issue_date).slice(0, 10))
+    if (periodLock) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(periodLock) }
     const organization = await client.query("SELECT * FROM organizations WHERE id=$1", [organizationId])
     const seller = organization.rows[0] as Record<string, unknown> | undefined
     const requiredSellerFields = ["business_name", "vat_number", "commercial_registration", "street", "building_number", "district", "city", "postal_code"]
@@ -116,8 +120,73 @@ documentsRouter.post("/:id/issue", async (c) => {
     return issuedRow
   })
   if (!result) return c.json({ error: "المسودة غير موجودة أو صادرة مسبقًا" }, 409)
-  if ("error" in result) return c.json({ error: "أكمل السجل التجاري والعنوان الوطني للمنشأة قبل إصدار الفاتورة" }, 422)
+  if ("error" in result) return c.json({ error: result.error === "PERIOD_LOCKED" ? result.message : "أكمل السجل التجاري والعنوان الوطني للمنشأة قبل إصدار الفاتورة" }, result.error === "PERIOD_LOCKED" ? 409 : 422)
   return c.json({ document: result })
+})
+
+const adjustmentSchema = z.object({
+  type: z.enum(["credit_note", "debit_note"]),
+  issue_date: z.iso.date(),
+  reason: z.string().trim().min(5).max(500),
+  taxable_amount: z.coerce.number().positive().max(999999999999),
+})
+
+documentsRouter.post("/:id/adjustments", zValidator("json", adjustmentSchema, (result, c) => {
+  if (!result.success) return c.json({ error: result.error.issues[0]?.message ?? "راجع بيانات الإشعار" }, 400)
+  return undefined
+}), async (c) => {
+  const organizationId = await getOrganizationId(c.req.raw.headers)
+  if (!organizationId) return c.json({ error: "غير مصرح" }, 401)
+  const body = c.req.valid("json")
+  const result = await withTransaction(async (client) => {
+    const sourceResult = await client.query("SELECT * FROM documents WHERE id=$1 AND organization_id=$2 AND type='invoice' AND status IN ('issued','paid','partially_paid') AND deleted_at IS NULL FOR UPDATE", [c.req.param("id"), organizationId])
+    const source = sourceResult.rows[0]
+    if (!source) return { error: "SOURCE_NOT_FOUND" as const }
+    if (body.issue_date < String(source.issue_date).slice(0, 10)) return { error: "DATE_BEFORE_INVOICE" as const }
+    const periodLock = await activePeriodLock(client, organizationId, body.issue_date)
+    if (periodLock) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(periodLock) }
+    const adjustment = calculateTaxAdjustment(body.taxable_amount)
+    const taxAmount = adjustment.tax
+    const total = adjustment.total
+    if (body.type === "credit_note") {
+      const prior = await client.query(`SELECT
+        COALESCE(SUM(CASE WHEN type='credit_note' THEN total ELSE 0 END),0) credits,
+        COALESCE(SUM(CASE WHEN type='debit_note' THEN total ELSE 0 END),0) debits
+        FROM documents WHERE organization_id=$1 AND source_document_id=$2
+          AND type IN ('credit_note','debit_note') AND status IN ('issued','paid','partially_paid') AND deleted_at IS NULL`, [organizationId, source.id])
+      const available = availableCreditAmount(Number(source.total), Number(prior.rows[0].credits), Number(prior.rows[0].debits))
+      if (total > available + 0.005) return { error: "CREDIT_EXCEEDS_AVAILABLE" as const, available }
+    }
+    await client.query("INSERT INTO document_sequences(organization_id,document_type,next_number) VALUES($1,$2,1) ON CONFLICT(organization_id,document_type) DO NOTHING", [organizationId, body.type])
+    const sequence = await client.query("SELECT next_number FROM document_sequences WHERE organization_id=$1 AND document_type=$2 FOR UPDATE", [organizationId, body.type])
+    const candidate = Number(sequence.rows[0].next_number)
+    const number = `${body.type === "credit_note" ? "CN" : "DN"}-${String(candidate).padStart(5, "0")}`
+    await client.query("UPDATE document_sequences SET next_number=$1 WHERE organization_id=$2 AND document_type=$3", [candidate + 1, organizationId, body.type])
+    const id = randomUUID()
+    const inserted = await client.query(`INSERT INTO documents(
+      id,organization_id,customer_id,type,number,issue_date,status,prices_include_tax,subtotal,discount_total,
+      tax_total,retention_total,total,collected_total,due_total,show_bank_details,show_stamp,show_signature,
+      notes,uuid,issue_time,organization_snapshot,customer_snapshot,reference_data,source_document_id,correction_reason
+    ) VALUES($1,$2,$3,$4,$5,$6,'issued',FALSE,$7,0,$8,0,$9,0,$9,FALSE,$10,$11,$12,$13,LOCALTIME,$14,$15,$16,$17,$12)
+    RETURNING *`, [
+      id, organizationId, source.customer_id, body.type, number, body.issue_date, adjustment.taxable, taxAmount, total,
+      source.show_stamp, source.show_signature, body.reason, randomUUID(), JSON.stringify(source.organization_snapshot),
+      JSON.stringify(source.customer_snapshot), JSON.stringify({ source_invoice_number: source.number }), source.id,
+    ])
+    await client.query(`INSERT INTO document_items(
+      document_id,description,quantity,unit_price,discount,tax_rate,retention_rate,line_subtotal,line_tax,line_retention,line_total,sort_order
+    ) VALUES($1,$2,1,$3,0,15,0,$3,$4,0,$5,0)`, [id, `تصحيح على الفاتورة رقم ${source.number}: ${body.reason}`, adjustment.taxable, taxAmount, total])
+    await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,reason,snapshot) VALUES($1,'document',$2,'issued',$3,$4)", [organizationId, id, body.reason, JSON.stringify(inserted.rows[0])])
+    return { document: inserted.rows[0] }
+  })
+  if ("error" in result) {
+    if (result.error === "SOURCE_NOT_FOUND") return c.json({ error: "لا يمكن إصدار إشعار إلا لفاتورة ضريبية صادرة" }, 404)
+    if (result.error === "DATE_BEFORE_INVOICE") return c.json({ error: "تاريخ الإشعار لا يمكن أن يسبق تاريخ الفاتورة الأصلية" }, 400)
+    if (result.error === "PERIOD_LOCKED") return c.json({ error: result.message }, 409)
+    if (result.error === "CREDIT_EXCEEDS_AVAILABLE") return c.json({ error: `قيمة الإشعار الدائن تتجاوز الرصيد القابل للتصحيح وهو ${result.available.toFixed(2)} ر.س` }, 409)
+    return c.json({ error: "تعذر إصدار الإشعار" }, 400)
+  }
+  return c.json(result, 201)
 })
 
 const cancelSchema=z.object({reason:z.string().trim().min(3).max(500)})
@@ -130,6 +199,12 @@ documentsRouter.post("/:id/cancel",zValidator("json",cancelSchema),async(c)=>{
     if(!row)return {error:"NOT_FOUND" as const}
     if(row.status==="cancelled")return {error:"ALREADY_CANCELLED" as const}
     if(row.status==="draft")return {error:"DRAFT" as const}
+    const periodLock=await activePeriodLock(client,organizationId,String(row.issue_date).slice(0,10))
+    if(periodLock)return {error:"PERIOD_LOCKED" as const,message:lockedPeriodMessage(periodLock)}
+    if(row.type==="invoice"){
+      const corrections=await client.query("SELECT 1 FROM documents WHERE source_document_id=$1 AND type IN ('credit_note','debit_note') AND status<>'cancelled' AND deleted_at IS NULL LIMIT 1",[row.id])
+      if(corrections.rows[0])return {error:"ACTIVE_ADJUSTMENTS" as const}
+    }
     const activeReceipts=await client.query(`
       SELECT 1
       WHERE EXISTS (
@@ -147,6 +222,7 @@ documentsRouter.post("/:id/cancel",zValidator("json",cancelSchema),async(c)=>{
     return {document:cancelled.rows[0]}
   })
   if("document" in result)return c.json(result)
-  const messages={NOT_FOUND:"المستند غير موجود",ALREADY_CANCELLED:"المستند ملغى مسبقًا",DRAFT:"احذف المسودة أو عدلها بدل إلغائها",ACTIVE_RECEIPTS:"اعكس سندات القبض المرتبطة أولًا قبل إلغاء الفاتورة"} as const
+  if(result.error==="PERIOD_LOCKED")return c.json({error:result.message},409)
+  const messages={NOT_FOUND:"المستند غير موجود",ALREADY_CANCELLED:"المستند ملغى مسبقًا",DRAFT:"احذف المسودة أو عدلها بدل إلغائها",ACTIVE_RECEIPTS:"اعكس سندات القبض المرتبطة أولًا قبل إلغاء الفاتورة",ACTIVE_ADJUSTMENTS:"ألغِ الإشعارات الدائنة والمدينة المرتبطة أولًا قبل إلغاء الفاتورة الأصلية"} as const
   return c.json({error:messages[result.error]},result.error==="NOT_FOUND"?404:409)
 })

@@ -5,6 +5,7 @@ import { zValidator } from "@hono/zod-validator"
 import { auth } from "../lib/auth"
 import { sql, withTransaction } from "../lib/db"
 import { applyExpensePayment } from "../lib/expensePayments"
+import { activePeriodLock, lockedPeriodMessage } from "../lib/periodLocks"
 
 export const expensesRouter = new Hono()
 
@@ -78,6 +79,8 @@ expensesRouter.post("/", zValidator("json", expenseSchema, (result, c) => {
   const input = c.req.valid("json")
   const id = randomUUID()
   const expense = await withTransaction(async (client) => {
+    const periodLock = await activePeriodLock(client, orgId, input.expense_date)
+    if (periodLock) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(periodLock) }
     const result = await client.query(`INSERT INTO expenses (
       id, organization_id, expense_date, category, financial_class, description, amount,
       payment_status, paid_amount, payment_method, supplier_name, beneficiary_iban, reference_number, project_reference, notes
@@ -92,6 +95,7 @@ expensesRouter.post("/", zValidator("json", expenseSchema, (result, c) => {
     )
     return result.rows[0]
   })
+  if ("error" in expense) return c.json({ error: expense.message }, 409)
   return c.json({ expense }, 201)
 })
 
@@ -118,6 +122,8 @@ expensesRouter.post("/:id/payments", zValidator("json", paymentSchema, (result, 
     const current = await client.query("SELECT * FROM expenses WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL FOR UPDATE", [c.req.param("id"), orgId])
     const expense = current.rows[0]
     if (!expense) return { error: "NOT_FOUND" as const }
+    const periodLock = await activePeriodLock(client, orgId, input.payment_date)
+    if (periodLock) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(periodLock) }
     const payment = applyExpensePayment(Number(expense.amount), Number(expense.paid_amount), input.amount)
     if (!payment.ok) return { error: payment.reason, remaining: payment.remaining }
     await client.query("INSERT INTO expense_payments(id,organization_id,expense_id,payment_date,amount,payment_method,beneficiary_name,beneficiary_iban,reference_number,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", [randomUUID(), orgId, expense.id, input.payment_date, input.amount, input.payment_method, input.beneficiary_name, input.beneficiary_iban || null, input.reference_number || null, input.notes || null])
@@ -126,6 +132,7 @@ expensesRouter.post("/:id/payments", zValidator("json", paymentSchema, (result, 
   })
   if ("error" in result) {
     if (result.error === "NOT_FOUND") return c.json({ error: "المصروف غير موجود" }, 404)
+    if (result.error === "PERIOD_LOCKED") return c.json({ error: result.message }, 409)
     if (result.error === "ALREADY_PAID") return c.json({ error: "المصروف مدفوع بالكامل" }, 409)
     if (result.error === "INVALID_AMOUNT") return c.json({ error: `المبلغ يتجاوز المتبقي وهو ${result.remaining.toFixed(2)} ر.س` }, 400)
     return c.json({ error: "تعذر تسجيل الدفعة" }, 400)
@@ -136,6 +143,17 @@ expensesRouter.post("/:id/payments", zValidator("json", paymentSchema, (result, 
 expensesRouter.delete("/:id", async (c) => {
   const orgId = await organizationId(c.req.raw.headers)
   if (!orgId) return c.json({ error: "غير مصرح" }, 401)
-  const rows = await sql`UPDATE expenses SET deleted_at=NOW(), updated_at=NOW() WHERE id=${c.req.param("id")} AND organization_id=${orgId} AND deleted_at IS NULL AND source_type='manual' RETURNING id`
-  return rows[0] ? c.json({ ok: true }) : c.json({ error: "المصروف غير موجود أو لا يمكن حذفه" }, 404)
+  const result = await withTransaction(async (client) => {
+    const found = await client.query("SELECT * FROM expenses WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL AND source_type='manual' FOR UPDATE", [c.req.param("id"), orgId])
+    const expense = found.rows[0]
+    if (!expense) return { error: "NOT_FOUND" as const }
+    const periodLock = await activePeriodLock(client, orgId, String(expense.expense_date).slice(0, 10))
+    if (periodLock) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(periodLock) }
+    if (Number(expense.paid_amount) > 0) return { error: "HAS_PAYMENTS" as const }
+    await client.query("UPDATE expenses SET deleted_at=NOW(),updated_at=NOW() WHERE id=$1", [expense.id])
+    return { ok: true as const }
+  })
+  if ("ok" in result) return c.json(result)
+  if (result.error === "PERIOD_LOCKED") return c.json({ error: result.message }, 409)
+  return c.json({ error: result.error === "HAS_PAYMENTS" ? "لا يمكن حذف مصروف له دفعات مسجلة" : "المصروف غير موجود أو لا يمكن حذفه" }, result.error === "NOT_FOUND" ? 404 : 409)
 })

@@ -4,6 +4,7 @@ import { zValidator } from "@hono/zod-validator"
 import { auth } from "../lib/auth"
 import { sql, withTransaction } from "../lib/db"
 import { issueReceipt } from "../lib/receiptService"
+import { activePeriodLock, lockedPeriodMessage } from "../lib/periodLocks"
 
 export const customersRouter = new Hono()
 async function organizationId(headers: Headers): Promise<string | null> {
@@ -64,6 +65,14 @@ customersRouter.get("/:id/account", async (c) => {
     WHERE d.organization_id=${orgId} AND d.customer_id=${customerId} AND d.type='invoice'
       AND d.status IN ('issued','paid','partially_paid') AND d.deleted_at IS NULL
     UNION ALL
+    SELECT d.type AS kind,d.id AS source_id,d.number,d.issue_date AS event_date,d.created_at,
+      CASE WHEN d.type='credit_note' THEN -d.total ELSE d.total END AS invoice_total,0::numeric AS retention_total,
+      0::numeric AS received,d.status,NULL::text AS payment_method_name,
+      CONCAT('الفاتورة الأصلية: ',COALESCE((d.reference_data->>'source_invoice_number'),'—')) AS reference_number
+    FROM documents d
+    WHERE d.organization_id=${orgId} AND d.customer_id=${customerId} AND d.type IN ('credit_note','debit_note')
+      AND d.status IN ('issued','paid','partially_paid') AND d.deleted_at IS NULL
+    UNION ALL
     SELECT 'payment' AS kind,dp.id AS source_id,d.number,COALESCE(dp.paid_at::date,d.issue_date) AS event_date,dp.created_at,
       0::numeric,0::numeric,dp.amount,d.status,dp.payment_method_name,NULL::text
     FROM document_payments dp JOIN documents d ON d.id=dp.document_id
@@ -95,10 +104,14 @@ customersRouter.post("/:id/receipts", zValidator("json", receiptSchema), async (
   const orgId = await organizationId(c.req.raw.headers); if (!orgId) return c.json({ error: "غير مصرح" }, 401)
   const customerId=c.req.param("id"),body=c.req.valid("json")
   const result=await withTransaction(async(client)=>{
+    const periodLock=await activePeriodLock(client,orgId,body.receipt_date)
+    if(periodLock)return {error:"PERIOD_LOCKED" as const,message:lockedPeriodMessage(periodLock)}
     const customer=await client.query("SELECT * FROM customers WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL",[customerId,orgId])
     if(!customer.rows[0])return null
     const organization=await client.query("SELECT * FROM organizations WHERE id=$1 AND deleted_at IS NULL",[orgId])
     return issueReceipt(client,{organizationId:orgId,customerId,payerName:String(customer.rows[0].name),payerPhone:customer.rows[0].phone||null,payerEmail:customer.rows[0].email||null,payerVatNumber:customer.rows[0].vat_number||null,receiptDate:body.receipt_date,amount:body.amount,paymentMethodName:body.payment_method_name,referenceNumber:body.reference_number||null,notes:body.notes||null,organizationSnapshot:(organization.rows[0]??{}) as Record<string,unknown>,showStamp:false,showSignature:false})
   })
-  return result?c.json({receipt:result},201):c.json({error:"العميل غير موجود"},404)
+  if(!result)return c.json({error:"العميل غير موجود"},404)
+  if("error" in result)return c.json({error:result.message},409)
+  return c.json({receipt:result},201)
 })
