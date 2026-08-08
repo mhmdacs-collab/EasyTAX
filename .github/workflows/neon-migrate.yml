@@ -137,18 +137,3 @@ jobs:
           END $$;
           ROLLBACK;
           SQL
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install workspace dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run TypeScript purchase action diagnostics
-        run: pnpm --filter @easytax/api exec tsx src/diagnosePurchaseActions.ts
