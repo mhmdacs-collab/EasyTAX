@@ -56,6 +56,7 @@ app.get("/health", (c) => {
     service: "EasyTAX API",
     timestamp: new Date().toISOString(),
     version: "0.1.0",
+    commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? null,
   });
 });
 

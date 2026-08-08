@@ -6,6 +6,7 @@ import { sql, withTransaction } from "../lib/db"
 import { issueReceipt } from "../lib/receiptService"
 import { activePeriodLock, lockedPeriodMessage } from "../lib/periodLocks"
 import { reverseSourceJournalEntries } from "../lib/accountingEngine"
+import { dateOnly } from "../lib/dateOnly"
 
 export const receiptsRouter = new Hono()
 
@@ -91,9 +92,10 @@ receiptsRouter.post("/:id/cancel",zValidator("json",cancelSchema),async(c)=>{
     const row=receipt.rows[0] as Record<string,unknown>|undefined
     if(!row)return {error:"NOT_FOUND" as const}
     if(row.status!=="issued")return {error:"ALREADY_CANCELLED" as const}
-    const periodLock=await activePeriodLock(client,orgId,String(row.receipt_date).slice(0,10))
+    const receiptDate=dateOnly(row.receipt_date)
+    const periodLock=await activePeriodLock(client,orgId,receiptDate)
     if(periodLock)return {error:"PERIOD_LOCKED" as const,message:lockedPeriodMessage(periodLock)}
-    await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"receipt",sourceId:String(row.id),reversalDate:String(row.receipt_date).slice(0,10),reason})
+    await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"receipt",sourceId:String(row.id),reversalDate:receiptDate,reason})
     const cancelled=await client.query("UPDATE customer_receipts SET status='cancelled',cancelled_at=NOW(),cancellation_reason=$1,updated_at=NOW() WHERE id=$2 RETURNING *",[reason,row.id])
     if(row.source_payment_id){
       await client.query("UPDATE document_payments SET is_collected=FALSE WHERE id=$1",[row.source_payment_id])

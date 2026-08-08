@@ -7,6 +7,7 @@ import { sql, withTransaction } from "../lib/db"
 import { activePeriodLock, lockedPeriodMessage } from "../lib/periodLocks"
 import { ledgerHealth, postJournalEntry, reverseSourceJournalEntries } from "../lib/accountingEngine"
 import { financialMovementJournal, type AccountKey } from "../lib/accountingRules"
+import { dateOnly } from "../lib/dateOnly"
 
 export const accountingRouter = new Hono()
 
@@ -37,11 +38,11 @@ accountingRouter.post("/period-locks/:id/unlock", zValidator("json", unlockSchem
     if (row.status !== "locked") return { error: "ALREADY_UNLOCKED" as const }
     const updated = await client.query("UPDATE accounting_period_locks SET status='unlocked',unlocked_at=NOW(),unlock_reason=$1,updated_at=NOW() WHERE id=$2 RETURNING *", [reason, row.id])
     if (row.lock_type === "financial_year" && row.source_entity_id) {
-      await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"financial_year",sourceId:String(row.source_entity_id),reversalDate:String(row.ends_on).slice(0,10),reason})
+      await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"financial_year",sourceId:String(row.source_entity_id),reversalDate:dateOnly(row.ends_on),reason})
       await client.query("UPDATE financial_statement_periods SET status='generated',updated_at=NOW() WHERE id=$1 AND organization_id=$2", [row.source_entity_id, orgId])
     }
     if (row.lock_type === "tax_return" && row.source_entity_id) {
-      await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"tax_return",sourceId:String(row.source_entity_id),reversalDate:String(row.ends_on).slice(0,10),reason})
+      await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"tax_return",sourceId:String(row.source_entity_id),reversalDate:dateOnly(row.ends_on),reason})
       await client.query("UPDATE tax_returns SET status='draft',updated_at=NOW() WHERE id=$1 AND organization_id=$2", [row.source_entity_id, orgId])
       await client.query("UPDATE tax_periods SET status='open' WHERE id=(SELECT tax_period_id FROM tax_returns WHERE id=$1 AND organization_id=$2)", [row.source_entity_id, orgId])
     }
@@ -128,14 +129,15 @@ accountingRouter.post("/movements/:id/reverse", zValidator("json", unlockSchema)
     const movement = found.rows[0]
     if (!movement) return { error: "NOT_FOUND" as const }
     if (movement.status === "reversed") return { error: "ALREADY_REVERSED" as const }
-    const lock = await activePeriodLock(client, orgId, String(movement.movement_date).slice(0, 10))
+    const movementDate = dateOnly(movement.movement_date)
+    const lock = await activePeriodLock(client, orgId, movementDate)
     if (lock) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(lock) }
     if (movement.movement_type === "loan_received") {
       const balance = await client.query(`SELECT COALESCE(SUM(CASE WHEN movement_type='loan_received' THEN amount WHEN movement_type='loan_repayment' THEN -amount ELSE 0 END),0) balance
         FROM financial_movements WHERE organization_id=$1 AND status='recorded' AND loan_term=$2`, [orgId, movement.loan_term])
       if (Number(balance.rows[0].balance) - Number(movement.amount) < -0.005) return { error: "ACTIVE_REPAYMENTS" as const }
     }
-    await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"financial_movement",sourceId:String(movement.id),reversalDate:String(movement.movement_date).slice(0,10),reason})
+    await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"financial_movement",sourceId:String(movement.id),reversalDate:movementDate,reason})
     const updated = await client.query("UPDATE financial_movements SET status='reversed',reversed_at=NOW(),reversal_reason=$1,updated_at=NOW() WHERE id=$2 RETURNING *", [reason, movement.id])
     await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,reason,snapshot) VALUES($1,'financial_movement',$2,'reversed',$3,$4)", [orgId, movement.id, reason, JSON.stringify(updated.rows[0])])
     return { movement: updated.rows[0] }
