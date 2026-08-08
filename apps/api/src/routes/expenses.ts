@@ -8,6 +8,7 @@ import { applyExpensePayment } from "../lib/expensePayments"
 import { activePeriodLock, lockedPeriodMessage } from "../lib/periodLocks"
 import { postJournalEntry, reverseSourceJournalEntries } from "../lib/accountingEngine"
 import { expenseJournal, payablePaymentJournal } from "../lib/accountingRules"
+import { dateOnly } from "../lib/dateOnly"
 
 export const expensesRouter = new Hono()
 
@@ -156,10 +157,11 @@ expensesRouter.delete("/:id", async (c) => {
     const found = await client.query("SELECT * FROM expenses WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL AND source_type='manual' FOR UPDATE", [c.req.param("id"), orgId])
     const expense = found.rows[0]
     if (!expense) return { error: "NOT_FOUND" as const }
-    const periodLock = await activePeriodLock(client, orgId, String(expense.expense_date).slice(0, 10))
+    const expenseDate = dateOnly(expense.expense_date)
+    const periodLock = await activePeriodLock(client, orgId, expenseDate)
     if (periodLock) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(periodLock) }
     if (Number(expense.paid_amount) > 0) return { error: "HAS_PAYMENTS" as const }
-    await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"expense",sourceId:String(expense.id),reversalDate:String(expense.expense_date).slice(0,10),reason:"حذف المصروف قبل الإقفال"})
+    await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"expense",sourceId:String(expense.id),reversalDate:expenseDate,reason:"حذف المصروف قبل الإقفال"})
     await client.query("UPDATE expenses SET deleted_at=NOW(),updated_at=NOW() WHERE id=$1", [expense.id])
     return { ok: true as const }
   })

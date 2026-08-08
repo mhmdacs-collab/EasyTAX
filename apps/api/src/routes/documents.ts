@@ -10,6 +10,7 @@ import { activePeriodLock, lockedPeriodMessage } from "../lib/periodLocks"
 import { availableCreditAmount, calculateTaxAdjustment } from "../lib/documentAdjustments"
 import { postJournalEntry, reverseSourceJournalEntries } from "../lib/accountingEngine"
 import { documentJournal } from "../lib/accountingRules"
+import { dateOnly } from "../lib/dateOnly"
 
 export const documentsRouter = new Hono()
 
@@ -96,7 +97,8 @@ documentsRouter.post("/:id/issue", async (c) => {
   const result = await withTransaction(async (client) => {
     const draft = await client.query("SELECT * FROM documents WHERE id=$1 AND organization_id=$2 AND status='draft' AND deleted_at IS NULL FOR UPDATE", [c.req.param("id"), organizationId])
     if (!draft.rows[0]) return null
-    const periodLock = await activePeriodLock(client, organizationId, String(draft.rows[0].issue_date).slice(0, 10))
+    const issueDate = dateOnly(draft.rows[0].issue_date)
+    const periodLock = await activePeriodLock(client, organizationId, issueDate)
     if (periodLock) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(periodLock) }
     const organization = await client.query("SELECT * FROM organizations WHERE id=$1", [organizationId])
     const seller = organization.rows[0] as Record<string, unknown> | undefined
@@ -113,11 +115,11 @@ documentsRouter.post("/:id/issue", async (c) => {
     const issued = await client.query(`UPDATE documents SET number=$1,status='issued',uuid=$2,issue_time=LOCALTIME,organization_snapshot=$3,updated_at=NOW(),sync_version=sync_version+1 WHERE id=$4 RETURNING id,number`, [number,randomUUID(),JSON.stringify(organization.rows[0]),c.req.param("id")])
     const issuedRow=issued.rows[0] as {id:string;number:string}
     if(documentType==="invoice"){
-      await postJournalEntry(client,{organizationId,entryDate:String(draft.rows[0].issue_date).slice(0,10),sourceType:"document",sourceId:c.req.param("id"),idempotencyKey:`document:${c.req.param("id")}:issued`,description:`فاتورة ضريبية رقم ${number}`,customerId:String(draft.rows[0].customer_id),lines:documentJournal({type:"invoice",total:Number(draft.rows[0].total),taxTotal:Number(draft.rows[0].tax_total),retentionTotal:Number(draft.rows[0].retention_total)})})
+      await postJournalEntry(client,{organizationId,entryDate:issueDate,sourceType:"document",sourceId:c.req.param("id"),idempotencyKey:`document:${c.req.param("id")}:issued`,description:`فاتورة ضريبية رقم ${number}`,customerId:String(draft.rows[0].customer_id),lines:documentJournal({type:"invoice",total:Number(draft.rows[0].total),taxTotal:Number(draft.rows[0].tax_total),retentionTotal:Number(draft.rows[0].retention_total)})})
       const payments=await client.query("SELECT * FROM document_payments WHERE document_id=$1 AND is_collected=TRUE ORDER BY created_at FOR UPDATE",[c.req.param("id")])
       const customer=draft.rows[0].customer_snapshot as Record<string,unknown>
       const seller=organization.rows[0] as Record<string,unknown>
-      for(const payment of payments.rows)await issueReceipt(client,{organizationId,customerId:String(draft.rows[0].customer_id),payerName:String(customer.name??""),payerPhone:String(customer.phone??"")||null,payerEmail:String(customer.email??"")||null,payerVatNumber:String(customer.vat_number??"")||null,receiptDate:String(draft.rows[0].issue_date).slice(0,10),amount:Number(payment.amount),paymentMethodName:String(payment.payment_method_name),referenceNumber:`فاتورة رقم ${number}`,organizationSnapshot:seller,showStamp:Boolean(seller.stamp_url&&seller.stamp_on_receipt),showSignature:Boolean(seller.signature_url&&seller.signature_on_receipt),sourceDocumentId:c.req.param("id"),sourcePaymentId:String(payment.id),requestId:`invoice-payment:${payment.id}`})
+      for(const payment of payments.rows)await issueReceipt(client,{organizationId,customerId:String(draft.rows[0].customer_id),payerName:String(customer.name??""),payerPhone:String(customer.phone??"")||null,payerEmail:String(customer.email??"")||null,payerVatNumber:String(customer.vat_number??"")||null,receiptDate:issueDate,amount:Number(payment.amount),paymentMethodName:String(payment.payment_method_name),referenceNumber:`فاتورة رقم ${number}`,organizationSnapshot:seller,showStamp:Boolean(seller.stamp_url&&seller.stamp_on_receipt),showSignature:Boolean(seller.signature_url&&seller.signature_on_receipt),sourceDocumentId:c.req.param("id"),sourcePaymentId:String(payment.id),requestId:`invoice-payment:${payment.id}`})
     }
     await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,snapshot) VALUES($1,'document',$2,'issued',$3)",[organizationId,c.req.param("id"),JSON.stringify({...draft.rows[0],number,status:"issued"})])
     return issuedRow
@@ -145,7 +147,7 @@ documentsRouter.post("/:id/adjustments", zValidator("json", adjustmentSchema, (r
     const sourceResult = await client.query("SELECT * FROM documents WHERE id=$1 AND organization_id=$2 AND type='invoice' AND status IN ('issued','paid','partially_paid') AND deleted_at IS NULL FOR UPDATE", [c.req.param("id"), organizationId])
     const source = sourceResult.rows[0]
     if (!source) return { error: "SOURCE_NOT_FOUND" as const }
-    if (body.issue_date < String(source.issue_date).slice(0, 10)) return { error: "DATE_BEFORE_INVOICE" as const }
+    if (body.issue_date < dateOnly(source.issue_date)) return { error: "DATE_BEFORE_INVOICE" as const }
     const periodLock = await activePeriodLock(client, organizationId, body.issue_date)
     if (periodLock) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(periodLock) }
     const adjustment = calculateTaxAdjustment(body.taxable_amount)
@@ -203,7 +205,8 @@ documentsRouter.post("/:id/cancel",zValidator("json",cancelSchema),async(c)=>{
     if(!row)return {error:"NOT_FOUND" as const}
     if(row.status==="cancelled")return {error:"ALREADY_CANCELLED" as const}
     if(row.status==="draft")return {error:"DRAFT" as const}
-    const periodLock=await activePeriodLock(client,organizationId,String(row.issue_date).slice(0,10))
+    const issueDate=dateOnly(row.issue_date)
+    const periodLock=await activePeriodLock(client,organizationId,issueDate)
     if(periodLock)return {error:"PERIOD_LOCKED" as const,message:lockedPeriodMessage(periodLock)}
     if(row.type==="invoice"){
       const corrections=await client.query("SELECT 1 FROM documents WHERE source_document_id=$1 AND type IN ('credit_note','debit_note') AND status<>'cancelled' AND deleted_at IS NULL LIMIT 1",[row.id])
@@ -221,7 +224,7 @@ documentsRouter.post("/:id/cancel",zValidator("json",cancelSchema),async(c)=>{
       LIMIT 1
     `,[row.id])
     if(activeReceipts.rows[0])return {error:"ACTIVE_RECEIPTS" as const}
-    await reverseSourceJournalEntries(client,{organizationId,sourceType:"document",sourceId:String(row.id),reversalDate:String(row.issue_date).slice(0,10),reason})
+    await reverseSourceJournalEntries(client,{organizationId,sourceType:"document",sourceId:String(row.id),reversalDate:issueDate,reason})
     const cancelled=await client.query("UPDATE documents SET status='cancelled',cancelled_at=NOW(),cancellation_reason=$1,updated_at=NOW(),sync_version=sync_version+1 WHERE id=$2 RETURNING *",[reason,row.id])
     await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,reason,snapshot) VALUES($1,'document',$2,'cancelled',$3,$4)",[organizationId,row.id,reason,JSON.stringify(cancelled.rows[0])])
     return {document:cancelled.rows[0]}

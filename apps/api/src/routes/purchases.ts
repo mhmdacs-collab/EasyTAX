@@ -8,6 +8,7 @@ import { applyExpensePayment, reverseRecordedPayment } from "../lib/expensePayme
 import { activePeriodLock, lockedPeriodMessage } from "../lib/periodLocks"
 import { postJournalEntry, reverseSourceJournalEntries } from "../lib/accountingEngine"
 import { payablePaymentJournal, purchaseJournal, purchaseTaxExclusionJournal } from "../lib/accountingRules"
+import { dateOnly } from "../lib/dateOnly"
 
 export const purchasesRouter = new Hono()
 const paymentMethods = ["cash", "bank_transfer", "card", "sadad"] as const
@@ -159,13 +160,14 @@ purchasesRouter.patch("/:id/status", zValidator("json", statusSchema), async (c)
     const current = await client.query("SELECT * FROM purchase_invoices WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL FOR UPDATE", [c.req.param("id"), orgId])
     if (!current.rows[0]) return null
     if (current.rows[0].status === "cancelled") return { error: "CANCELLED_LOCKED" as const }
-    const periodLock = await activePeriodLock(client, orgId, String(current.rows[0].invoice_date).slice(0, 10))
+    const invoiceDate = dateOnly(current.rows[0].invoice_date)
+    const periodLock = await activePeriodLock(client, orgId, invoiceDate)
     if (periodLock) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(periodLock) }
     if (body.status === "cancelled" && Number(current.rows[0].paid_amount) > 0) return { error: "ACTIVE_PAYMENTS" as const }
-    if(body.status==="excluded"&&current.rows[0].status==="included"&&Number(current.rows[0].tax_total)>0)await postJournalEntry(client,{organizationId:orgId,entryDate:String(current.rows[0].invoice_date).slice(0,10),sourceType:"purchase_tax_adjustment",sourceId:String(current.rows[0].id),idempotencyKey:`purchase_invoice:${String(current.rows[0].id)}:tax_excluded`,description:`استبعاد ضريبة فاتورة ${String(current.rows[0].internal_number??"")}`,supplierReference:String(current.rows[0].supplier_vat_number??""),lines:purchaseTaxExclusionJournal(Number(current.rows[0].tax_total))})
-    if(body.status==="included"&&current.rows[0].status==="excluded")await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"purchase_tax_adjustment",sourceId:String(current.rows[0].id),reversalDate:String(current.rows[0].invoice_date).slice(0,10),reason:"إعادة إدراج الفاتورة في الإقرار الضريبي"})
-    if(body.status==="cancelled"&&current.rows[0].status==="excluded")await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"purchase_tax_adjustment",sourceId:String(current.rows[0].id),reversalDate:String(current.rows[0].invoice_date).slice(0,10),reason:body.reason!})
-    if(body.status === "cancelled") await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"purchase_invoice",sourceId:String(current.rows[0].id),reversalDate:String(current.rows[0].invoice_date).slice(0,10),reason:body.reason!})
+    if(body.status==="excluded"&&current.rows[0].status==="included"&&Number(current.rows[0].tax_total)>0)await postJournalEntry(client,{organizationId:orgId,entryDate:invoiceDate,sourceType:"purchase_tax_adjustment",sourceId:String(current.rows[0].id),idempotencyKey:`purchase_invoice:${String(current.rows[0].id)}:tax_excluded`,description:`استبعاد ضريبة فاتورة ${String(current.rows[0].internal_number??"")}`,supplierReference:String(current.rows[0].supplier_vat_number??""),lines:purchaseTaxExclusionJournal(Number(current.rows[0].tax_total))})
+    if(body.status==="included"&&current.rows[0].status==="excluded")await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"purchase_tax_adjustment",sourceId:String(current.rows[0].id),reversalDate:invoiceDate,reason:"إعادة إدراج الفاتورة في الإقرار الضريبي"})
+    if(body.status==="cancelled"&&current.rows[0].status==="excluded")await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"purchase_tax_adjustment",sourceId:String(current.rows[0].id),reversalDate:invoiceDate,reason:body.reason!})
+    if(body.status === "cancelled") await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"purchase_invoice",sourceId:String(current.rows[0].id),reversalDate:invoiceDate,reason:body.reason!})
     const updated = await client.query(`UPDATE purchase_invoices SET status=$1,include_in_tax_return=$2,
       accounting_status=CASE WHEN $1='cancelled' THEN 'cancelled' ELSE accounting_status END,
       exclusion_reason=$3,cancelled_at=CASE WHEN $1='cancelled' THEN NOW() ELSE NULL END,
@@ -250,11 +252,12 @@ purchasesRouter.post("/:id/payments/:paymentId/cancel", zValidator("json", cance
     const payment = payments.rows[0]
     if (!payment) return { error: "PAYMENT_NOT_FOUND" as const }
     if (payment.status === "cancelled") return { error: "ALREADY_CANCELLED" as const }
-    const periodLock = await activePeriodLock(client, orgId, String(payment.payment_date).slice(0, 10))
+    const paymentDate = dateOnly(payment.payment_date)
+    const periodLock = await activePeriodLock(client, orgId, paymentDate)
     if (periodLock) return { error: "PERIOD_LOCKED" as const, message: lockedPeriodMessage(periodLock) }
     const reversal = reverseRecordedPayment(Number(purchase.total), Number(purchase.paid_amount), Number(payment.amount))
     if (!reversal.ok) return { error: "INVALID_REVERSAL" as const }
-    await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"purchase_payment",sourceId:String(payment.id),reversalDate:String(payment.payment_date).slice(0,10),reason})
+    await reverseSourceJournalEntries(client,{organizationId:orgId,sourceType:"purchase_payment",sourceId:String(payment.id),reversalDate:paymentDate,reason})
     const cancelled = await client.query("UPDATE purchase_invoice_payments SET status='cancelled',cancelled_at=NOW(),cancellation_reason=$1,updated_at=NOW() WHERE id=$2 RETURNING *", [reason, payment.id])
     const updated = await client.query("UPDATE purchase_invoices SET paid_amount=$1,payment_status=$2,updated_at=NOW() WHERE id=$3 RETURNING *", [reversal.paid, reversal.status, purchase.id])
     await client.query("INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,reason,snapshot) VALUES($1,'purchase_payment',$2,'payment_cancelled',$3,$4)", [orgId, payment.id, reason, JSON.stringify(cancelled.rows[0])])
