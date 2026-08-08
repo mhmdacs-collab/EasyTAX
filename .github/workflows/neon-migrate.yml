@@ -90,6 +90,11 @@ jobs:
             UPDATE journal_entries SET status='posted',posted_at=NOW(),updated_at=NOW() WHERE id=journal_id;
             INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,snapshot)
               VALUES(target.organization_id,'journal_entry',journal_id,'posted',jsonb_build_object('diagnostic',true));
+            UPDATE purchase_invoices SET status='excluded',include_in_tax_return=FALSE,
+              exclusion_reason='diagnostic rollback',updated_at=NOW() WHERE id=target.id;
+            INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,reason,snapshot)
+              SELECT organization_id,'purchase_invoice',id,'excluded','diagnostic rollback',to_jsonb(purchase_invoices)
+              FROM purchase_invoices WHERE id=target.id;
             RAISE NOTICE 'Purchase exclusion journal simulation succeeded for %',target.internal_number;
           END $$;
           ROLLBACK;
@@ -119,6 +124,15 @@ jobs:
             UPDATE journal_entries SET status='reversed',reversed_by_entry_id=reversal_id,reversal_reason='diagnostic rollback',updated_at=NOW() WHERE id=original.id;
             INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,reason,snapshot)
               VALUES(payment.organization_id,'journal_entry',original.id,'reversed','diagnostic rollback',jsonb_build_object('diagnostic',true));
+            UPDATE purchase_invoice_payments SET status='cancelled',cancelled_at=NOW(),cancellation_reason='diagnostic rollback',updated_at=NOW()
+              WHERE id=payment.id;
+            UPDATE purchase_invoices SET paid_amount=GREATEST(0,paid_amount-payment.amount),
+              payment_status=CASE WHEN GREATEST(0,paid_amount-payment.amount)<=0 THEN 'unpaid'
+                WHEN GREATEST(0,paid_amount-payment.amount)>=total THEN 'paid' ELSE 'partial' END,updated_at=NOW()
+              WHERE id=payment.purchase_invoice_id;
+            INSERT INTO financial_audit_events(organization_id,entity_type,entity_id,action,reason,snapshot)
+              SELECT organization_id,'purchase_payment',id,'payment_cancelled','diagnostic rollback',to_jsonb(purchase_invoice_payments)
+              FROM purchase_invoice_payments WHERE id=payment.id;
             RAISE NOTICE 'Purchase payment reversal simulation succeeded for %',payment.id;
           END $$;
           ROLLBACK;
