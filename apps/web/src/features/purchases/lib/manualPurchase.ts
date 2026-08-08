@@ -9,5 +9,5 @@ export function calculateIncludedVat(total: number, rate = 15) {
 }
 
 export function manualInvoiceTimestamp(invoiceDate: string) {
-  return `${invoiceDate}T12:00:00+03:00`;
+  return new Date(`${invoiceDate}T12:00:00+03:00`).toISOString();
 }

@@ -11,5 +11,5 @@ void test("does not invent tax for an empty amount", () => {
 });
 
 void test("creates a stable Riyadh timestamp from the invoice date", () => {
-  assert.equal(manualInvoiceTimestamp("2026-08-08"), "2026-08-08T12:00:00+03:00");
+  assert.equal(manualInvoiceTimestamp("2026-08-08"), "2026-08-08T09:00:00.000Z");
 });
