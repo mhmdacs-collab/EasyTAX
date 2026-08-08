@@ -115,6 +115,7 @@ export const fetchDocument = (id:string) => request<{ document: CentralDocument 
 export type TaxPurchase = {
   id:string; internal_number:string; supplier_name:string; supplier_vat_number:string; invoice_number:string
   invoice_date:string; invoice_timestamp:string; subtotal:number|string; tax_total:number|string; total:number|string
+  source:"qr"|"manual"
   status:"included"|"excluded"|"cancelled"; exclusion_reason?:string; cancellation_reason?:string
   accounting_status:"recorded"|"cancelled"; payment_status:"unpaid"|"partially_paid"|"paid"; paid_amount:number|string
   last_payment_method?:"cash"|"bank_transfer"|"card"|"sadad"; beneficiary_iban?:string
@@ -122,8 +123,9 @@ export type TaxPurchase = {
   payments?:Array<{id:string;payment_date:string;amount:number|string;payment_method:"cash"|"bank_transfer"|"card"|"sadad";beneficiary_name:string;beneficiary_iban?:string;reference_number?:string;notes?:string;status:"issued"|"cancelled";cancellation_reason?:string}>
 }
 export type TaxPurchaseInput = {
+  source:"qr"|"manual"
   supplier_name:string; supplier_vat_number:string; invoice_number:string; invoice_timestamp:string
-  total:number; tax_total:number; qr_payload:string; qr_fields:Record<string,string>
+  total:number; tax_total:number; qr_payload?:string; qr_fields:Record<string,string>
   duplicate_override:boolean; responsibility_confirmed:true; notes?:string
   payment_status:"paid"|"partially_paid"|"unpaid"
   initial_payment?:{amount:number;payment_method:"cash"|"bank_transfer"|"card"|"sadad";reference_number?:string}

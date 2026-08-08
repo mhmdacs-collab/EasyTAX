@@ -127,6 +127,7 @@ export function ScanPurchasePage() {
         reference_number: paymentReference.trim() || undefined,
       }
       await createTaxPurchase({
+        source: "qr",
         supplier_name: decoded.sellerName,
         supplier_vat_number: decoded.sellerVatNumber,
         invoice_number: invoiceNumber.trim(),

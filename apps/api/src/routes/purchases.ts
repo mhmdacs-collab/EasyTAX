@@ -34,13 +34,14 @@ async function organizationId(headers: Headers): Promise<string | null> {
 }
 
 const purchaseSchema = z.object({
+  source: z.enum(["qr", "manual"]).default("qr"),
   supplier_name: z.string().trim().min(1).max(300),
   supplier_vat_number: z.string().trim().regex(/^3\d{13}3$/),
   invoice_number: z.string().trim().min(1).max(120),
   invoice_timestamp: z.string().datetime(),
   total: z.number().positive(),
   tax_total: z.number().min(0),
-  qr_payload: z.string().trim().min(1).max(4000),
+  qr_payload: z.string().trim().min(1).max(4000).optional(),
   qr_fields: z.record(z.string(), z.string()).default({}),
   duplicate_override: z.boolean().default(false),
   responsibility_confirmed: z.literal(true),
@@ -48,6 +49,7 @@ const purchaseSchema = z.object({
   initial_payment: initialPaymentSchema.optional(),
   notes: z.string().trim().max(1000).optional(),
 }).superRefine((body, context) => {
+  if (body.source === "qr" && !body.qr_payload) context.addIssue({ code: "custom", path: ["qr_payload"], message: "بيانات QR مطلوبة للفاتورة الممسوحة" })
   if (body.tax_total > body.total) context.addIssue({ code: "custom", path: ["tax_total"], message: "مبلغ الضريبة لا يمكن أن يتجاوز إجمالي الفاتورة" })
   if (body.payment_status === "unpaid" && body.initial_payment) {
     context.addIssue({ code: "custom", path: ["initial_payment"], message: "الفاتورة غير المدفوعة لا تقبل دفعة أولى" })
@@ -73,7 +75,7 @@ purchasesRouter.get("/", async (c) => {
     SELECT id,internal_number,supplier_name,supplier_vat_number,invoice_number,invoice_date,invoice_timestamp,
            subtotal,tax_total,total,status,exclusion_reason,cancelled_at,cancellation_reason,
            accounting_status,payment_status,paid_amount,last_payment_method,beneficiary_iban,
-           duplicate_override,duplicate_of_id,created_at
+           source,duplicate_override,duplicate_of_id,created_at
     FROM purchase_invoices
     WHERE organization_id=${orgId} AND deleted_at IS NULL
     ORDER BY invoice_date DESC,created_at DESC`
@@ -99,7 +101,7 @@ purchasesRouter.post("/", zValidator("json", purchaseSchema), async (c) => {
     FROM purchase_invoices
     WHERE organization_id=${orgId} AND deleted_at IS NULL AND status<>'cancelled'
       AND supplier_vat_number=${body.supplier_vat_number}
-      AND (invoice_number=${body.invoice_number} OR qr_payload=${body.qr_payload})
+      AND (invoice_number=${body.invoice_number} OR (${body.qr_payload ?? ""} <> '' AND qr_payload=${body.qr_payload ?? ""}))
     ORDER BY created_at DESC LIMIT 1`
   const duplicate = duplicates[0] as Record<string, unknown> | undefined
   if (duplicate && !body.duplicate_override) return c.json({ error: "DUPLICATE_WARNING", duplicate }, 409)
@@ -110,7 +112,7 @@ purchasesRouter.post("/", zValidator("json", purchaseSchema), async (c) => {
     await client.query("INSERT INTO purchase_invoice_sequences(organization_id,next_number) VALUES($1,1) ON CONFLICT(organization_id) DO NOTHING", [orgId])
     const sequence = await client.query("SELECT next_number FROM purchase_invoice_sequences WHERE organization_id=$1 FOR UPDATE", [orgId])
     const nextNumber = Number(sequence.rows[0].next_number)
-    const internalNumber = `PQR-${String(nextNumber).padStart(5, "0")}`
+    const internalNumber = `${body.source === "qr" ? "PQR" : "PMN"}-${String(nextNumber).padStart(5, "0")}`
     await client.query("UPDATE purchase_invoice_sequences SET next_number=$1 WHERE organization_id=$2", [nextNumber + 1, orgId])
     const subtotal = Math.max(0, body.total - body.tax_total)
     const paidAmount = body.initial_payment?.amount ?? 0
@@ -119,9 +121,9 @@ purchasesRouter.post("/", zValidator("json", purchaseSchema), async (c) => {
         organization_id,internal_number,supplier_name,supplier_vat_number,invoice_number,invoice_date,invoice_timestamp,
         subtotal,tax_total,total,include_in_tax_return,qr_payload,qr_extraction_status,qr_fields,source,status,
         duplicate_override,duplicate_of_id,payment_status,paid_amount,last_payment_method
-      ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,TRUE,$11,'extracted',$12,'qr','included',$13,$14,$15,$16,$17)
+      ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,TRUE,$11,$12,$13,$14,'included',$15,$16,$17,$18,$19)
       RETURNING *`, [orgId, internalNumber, body.supplier_name, body.supplier_vat_number, body.invoice_number, invoiceDate,
-      body.invoice_timestamp, subtotal, body.tax_total, body.total, body.qr_payload, JSON.stringify(body.qr_fields),
+      body.invoice_timestamp, subtotal, body.tax_total, body.total, body.qr_payload ?? null, body.source === "qr" ? "extracted" : "manual", JSON.stringify(body.qr_fields), body.source,
       body.duplicate_override, duplicate?.id ?? null, body.payment_status, paidAmount, body.initial_payment?.payment_method ?? null])
     await postJournalEntry(client,{organizationId:orgId,entryDate:invoiceDate,sourceType:"purchase_invoice",sourceId:String(result.rows[0].id),idempotencyKey:`purchase_invoice:${String(result.rows[0].id)}:recorded`,description:`فاتورة مشتريات ${internalNumber}`,supplierReference:body.supplier_vat_number,lines:purchaseJournal({subtotal,taxTotal:body.tax_total,total:body.total})})
     if (body.initial_payment) {

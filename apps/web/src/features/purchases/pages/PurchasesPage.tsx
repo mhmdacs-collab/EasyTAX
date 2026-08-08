@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react"
 import { Link } from "@tanstack/react-router"
-import { Camera, CircleDollarSign, FileDown, History, X } from "lucide-react"
+import { Camera, CircleDollarSign, FileDown, FilePenLine, History, X } from "lucide-react"
 import {
   addTaxPurchasePayment,
   cancelTaxPurchasePayment,
@@ -58,13 +58,13 @@ export function PurchasesPage() {
 
   return <div className="space-y-6 p-4 sm:p-6" dir="rtl">
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <div><h1 className="text-2xl font-bold">فواتير المشتريات الضريبية</h1><p className="mt-1 text-sm text-muted-foreground">فواتير QR تدخل سجل المشتريات ماليًا، ويمكن تحديد إدراجها في الإقرار وتتبع سدادها بشكل مستقل.</p></div>
-      <div className="flex gap-2"><Button variant="outline" onClick={downloadCsv} disabled={!purchases?.length}><FileDown className="me-2 size-4" />تحميل الكشف</Button><Button asChild><Link to="/purchases/scan"><Camera className="me-2 size-4" />مسح فاتورة</Link></Button></div>
+      <div><h1 className="text-2xl font-bold">المشتريات</h1><p className="mt-1 text-sm text-muted-foreground">سجّل فاتورة المورد بمسح QR أو بإدخال بياناتها يدويًا، ثم راجع ضريبتها وحالة سدادها.</p></div>
+      <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={downloadCsv} disabled={!purchases?.length}><FileDown className="me-2 size-4" />تحميل الكشف</Button><Button asChild variant="outline"><Link to="/purchases/manual"><FilePenLine className="me-2 size-4" />إدخال يدوي</Link></Button><Button asChild><Link to="/purchases/scan"><Camera className="me-2 size-4" />مسح QR</Link></Button></div>
     </div>
     <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm leading-6 text-sky-900"><strong>مهم:</strong> استبعاد الفاتورة من الإقرار يمنع خصم ضريبتها فقط، ولا يحذف تكلفة الشراء من القوائم المالية. الإلغاء هو الإجراء الوحيد الذي يلغيها محاسبيًا.</div>
     {error ? <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive">{error}</div> : null}
     <Card><CardHeader><CardTitle className="text-lg">سجل المشتريات</CardTitle></CardHeader><CardContent className="overflow-x-auto">
-      {!purchases ? <p className="py-10 text-center text-muted-foreground">جاري التحميل…</p> : purchases.length === 0 ? <div className="py-14 text-center"><Camera className="mx-auto mb-3 size-10 text-muted-foreground/40" /><p className="font-medium">لا توجد فواتير مشتريات ضريبية</p><p className="mt-1 text-sm text-muted-foreground">ابدأ بمسح QR من فاتورة المورد.</p></div> :
+      {!purchases ? <p className="py-10 text-center text-muted-foreground">جاري التحميل…</p> : purchases.length === 0 ? <div className="py-14 text-center"><Camera className="mx-auto mb-3 size-10 text-muted-foreground/40" /><p className="font-medium">لا توجد فواتير مشتريات</p><p className="mt-1 text-sm text-muted-foreground">ابدأ بمسح QR أو أدخل فاتورة المورد يدويًا.</p></div> :
       <table className="w-full min-w-[1120px] text-sm"><thead><tr className="border-b text-muted-foreground"><th className="p-3 text-start">الرقم الداخلي</th><th className="p-3 text-start">المورد</th><th className="p-3 text-start">فاتورة المورد</th><th className="p-3 text-start">التاريخ</th><th className="p-3 text-end">الضريبة</th><th className="p-3 text-end">قيمة الفاتورة</th><th className="p-3 text-end">المدفوع</th><th className="p-3 text-end">المتبقي</th><th className="p-3 text-center">الإقرار</th><th className="p-3"></th></tr></thead>
         <tbody>{purchases.map((purchase) => {
           const remaining = Math.max(0, Number(purchase.total) - Number(purchase.paid_amount))

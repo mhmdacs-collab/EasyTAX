@@ -8,7 +8,7 @@ import { useAuth } from "@/features/auth/hooks/useAuth"
 const navItems = [
   { to: "/" as const, label: "لوحة التحكم", icon: LayoutDashboard },
   { to: "/documents" as const, label: "المستندات", icon: FileText },
-  { to: "/purchases" as const, label: "المشتريات الضريبية", icon: ShoppingCart },
+  { to: "/purchases" as const, label: "المشتريات", icon: ShoppingCart },
   { to: "/expenses" as const, label: "المصروفات", icon: WalletCards },
   { to: "/tax-return" as const, label: "الإقرار الضريبي", icon: Landmark },
   { to: "/financial-statements" as const, label: "القوائم المالية", icon: ChartNoAxesCombined },

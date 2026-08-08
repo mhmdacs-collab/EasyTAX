@@ -152,6 +152,7 @@ const ReceiptViewPage = lazy(() => import("@/features/receipts/pages/ReceiptView
 const SettingsPage = lazy(() => import("@/features/settings/pages/SettingsPage"))
 const PurchasesPage = lazy(() => import("@/features/purchases/pages/PurchasesPage").then((m) => ({ default: m.PurchasesPage })))
 const ScanPurchasePage = lazy(() => import("@/features/purchases/pages/ScanPurchasePage").then((m) => ({ default: m.ScanPurchasePage })))
+const ManualPurchasePage = lazy(() => import("@/features/purchases/pages/ManualPurchasePage").then((m) => ({ default: m.ManualPurchasePage })))
 const TaxReturnPage = lazy(() => import("@/features/taxReturns/pages/TaxReturnPage").then((m) => ({ default: m.TaxReturnPage })))
 const ExpensesPage = lazy(() => import("@/features/expenses/pages/ExpensesPage").then((m) => ({ default: m.ExpensesPage })))
 const FinancialStatementsPage = lazy(() => import("@/features/financialStatements/pages/FinancialStatementsPage"))
@@ -174,6 +175,7 @@ const documentEditRoute = createRoute({
 const settingsRoute = createRoute({ getParentRoute: () => appRoute, path: "/settings", component: SettingsPage })
 const purchasesRoute = createRoute({ getParentRoute: () => appRoute, path: "/purchases", component: PurchasesPage })
 const scanPurchaseRoute = createRoute({ getParentRoute: () => appRoute, path: "/purchases/scan", component: ScanPurchasePage })
+const manualPurchaseRoute = createRoute({ getParentRoute: () => appRoute, path: "/purchases/manual", component: ManualPurchasePage })
 const taxReturnRoute = createRoute({ getParentRoute: () => appRoute, path: "/tax-return", component: TaxReturnPage })
 const expensesRoute = createRoute({ getParentRoute: () => appRoute, path: "/expenses", component: ExpensesPage })
 const financialStatementsRoute = createRoute({ getParentRoute: () => appRoute, path: "/financial-statements", component: FinancialStatementsPage })
@@ -194,6 +196,7 @@ const routeTree = rootRoute.addChildren([
     documentsRoute,
     purchasesRoute,
     scanPurchaseRoute,
+    manualPurchaseRoute,
     taxReturnRoute,
     financialStatementsRoute,
     accountingControlsRoute,
